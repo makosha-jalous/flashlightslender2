@@ -20,24 +20,19 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 import java.util.*;
 
 /**
- * While a player holds a switched-on flashlight, a fan of 5 light blocks follows the beam.
- * The fan slowly rotates counter-clockwise around the beam axis, so the "rays" gently swirl.
+ * While a player holds a switched-on flashlight, a fan of light blocks follows the beam,
+ * and a circular projection forms on the hit surface to mimic Slender: The Arrival.
  */
 @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID)
 public class FlashlightLight {
 
     private static final double RANGE = 22;
 
-    /** Distances along the beam (fraction of the hit distance). */
     private static final double[] FRACTION = {0.15, 0.35, 0.55, 0.78, 1.00};
-    /** Light level for each of the five spots (thick near->soft far). */
     private static final int[] LEVEL = {7, 10, 12, 13, 12};
-    /** Perpendicular offset from the beam axis (blocks), makes the spots sit "on a ray" not on the axis. */
     private static final double[] OFFSET = {0.45, 0.55, 0.60, 0.45, 0.00};
-    /** Angle offset for each spot around the beam axis (radians). */
     private static final double[] ANGLE = {0.0, 1.2566, 2.5133, 3.7699, 0.0};
 
-    /** Counter-clockwise rotation speed (as the player sees it), radians per tick. Very slow: a full turn takes ~52 s. */
     private static final double SPIN = 0.0060;
 
     private static class Track {
@@ -97,14 +92,12 @@ public class FlashlightLight {
         boolean miss = hit.getType() == HitResult.Type.MISS;
         double dist = miss ? 16 : eye.distanceTo(hit.getLocation());
 
-        // Build the orthonormal basis perpendicular to the beam axis.
         Vec3 up = new Vec3(0, 1, 0);
         if (Math.abs(look.dot(up)) > 0.95) up = new Vec3(1, 0, 0);
         Vec3 right = look.cross(up).normalize();
         Vec3 axisUp = right.cross(look).normalize();
 
-        // The whole fan rotates counter-clockwise very slowly.
-        double spin = now * SPIN; // growing angle = right -> up = counter-clockwise for the player
+        double spin = now * SPIN;
 
         Map<BlockPos, Integer> wanted = new HashMap<>();
         for (int i = 0; i < FRACTION.length; i++) {
@@ -121,9 +114,30 @@ public class FlashlightLight {
             wanted.merge(pos.immutable(), LEVEL[i], Math::max);
         }
 
+        // Формирование круглого светового пятна на стене при попадании луча
         if (!miss) {
             BlockPos surface = hit.getBlockPos().relative(hit.getDirection());
-            if (lvl.isLoaded(surface)) wanted.merge(surface, 14, Math::max);
+            if (lvl.isLoaded(surface)) {
+                wanted.merge(surface, 14, Math::max); // Центр пятна
+
+                // Создаем круглое обрамление из блоков света вокруг центра удара для эффекта круга
+                Vec3 hitNormal = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
+                Vec3 wallUp = Math.abs(hitNormal.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
+                Vec3 wallRight = hitNormal.cross(wallUp).normalize();
+                Vec3 wallUpReal = wallRight.cross(hitNormal).normalize();
+
+                for (int angleIdx = 0; angleIdx < 4; angleIdx++) {
+                    double a = angleIdx * (Math.PI / 2);
+                    BlockPos ringPos = surface.offset(
+                            (int) Math.round(wallRight.x * Math.cos(a) + wallUpReal.x * Math.sin(a)),
+                            (int) Math.round(wallRight.y * Math.cos(a) + wallUpReal.y * Math.sin(a)),
+                            (int) Math.round(wallRight.z * Math.cos(a) + wallUpReal.z * Math.sin(a))
+                    );
+                    if (lvl.isLoaded(ringPos)) {
+                        wanted.merge(ringPos.immutable(), 11, Math::max);
+                    }
+                }
+            }
         }
 
         for (Iterator<Map.Entry<BlockPos, Integer>> it = tr.spots.entrySet().iterator(); it.hasNext(); ) {
