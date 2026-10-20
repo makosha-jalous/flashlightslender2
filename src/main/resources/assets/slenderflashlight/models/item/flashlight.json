@@ -3613,13 +3613,13 @@
    ],
    "translation": [
     0,
-    3,
-    1
+    0,
+    0
    ],
    "scale": [
-    0.8,
-    0.8,
-    0.8
+    0,
+    0,
+    0
    ]
   },
   "firstperson_lefthand": {
@@ -3637,6 +3637,23 @@
     0.8,
     0.8,
     0.8
+   ]
+  },
+  "thirdperson_lefthand": {
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "translation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    0,
+    0,
+    0
    ]
   }
  },
