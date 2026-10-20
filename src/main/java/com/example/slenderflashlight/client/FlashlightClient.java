@@ -9,22 +9,19 @@ import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.Tesselator;
-import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
-import com.mojang.math.Matrix3f;
 import com.mojang.math.Matrix4f;
 import com.mojang.math.Vector3f;
-import com.mojang.math.Vector4f;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.model.ItemTransforms;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
@@ -32,12 +29,16 @@ import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * First-person flashlight with a single clean arm rectangle holding it.
+ * First-person flashlight with a Minecraft-style box hand, walking/running arc and idle breathing.
  */
 @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID, value = Dist.CLIENT)
 public class FlashlightClient {
 
+    // ---------- положение фонарика (как было) ----------
     private static final float FLASH_X = 0.937f;
     private static final float FLASH_Y = -0.605f;
     private static final float FLASH_Z = -1.0f;
@@ -47,15 +48,32 @@ public class FlashlightClient {
     private static final float FLASH_ROLL = 0.586f;
     private static final float LENS_Z = -0.475f;
 
-    // Единая рука (один полноценный прямоугольник без посторонних кусков)
-    private static final double ARM_GX = 0.20f, ARM_GY = -0.05f, ARM_GZ = 0.10f;
-    private static final double ARM_YAW = 20.0f;
-    private static final double ARM_ELEV = -15.0f;
-    private static final double ARM_WIDTH = 0.26f;  // Толщина руки
-    private static final double ARM_LENGTH = 1.5f; // Длина руки
+    // ---------- РУКА: цвет и размеры (можно крутить) ----------
+    // Цвет кожи (бежевый как на твоём рисунке). Значения 0..1.
+    private static final float HAND_R = 0.93f;
+    private static final float HAND_G = 0.80f;
+    private static final float HAND_B = 0.68f;
+    // Верхний прямоугольник (рука): откуда начинается на фонарике, куда идёт, толщина и длина.
+    private static final double ARM_GX = 0.20, ARM_GY = -0.05, ARM_GZ = 0.10;
+    private static final double ARM_YAW = 20.0, ARM_ELEV = -15.0;
+    private static final double ARM_WIDTH = 0.26;
+    private static final double ARM_LENGTH = 1.5;
+    // Нижний маленький прямоугольник (три пальца под фонариком), координаты в модели фонарика.
+    // Центр и ПОЛОВИНЫ размеров по X (ширина), Y (толщина), Z (длина вдоль фонарика).
+    private static final double FING_CX = 0.0, FING_CY = -0.19, FING_CZ = 0.04;
+    private static final double FING_HX = 0.17, FING_HY = 0.05, FING_HZ = 0.11;
 
-    private static final float SKIN_U = 12.5f / 64f;
-    private static final float SKIN_V = 14.5f / 64f;
+    // ---------- ходьба / бег ----------
+    private static final float WALK_AMP_X = 0.030f;
+    private static final float RUN_AMP_X = 0.060f;
+    private static final float WALK_AMP_Y = 0.016f;
+    private static final float RUN_AMP_Y = 0.034f;
+    private static final float WALK_SPEED = 6.0f;
+    private static final float RUN_SPEED = 9.0f;
+
+    // ---------- плавное «дыхание» в покое ----------
+    private static final float IDLE_X = 0.006f;
+    private static final float IDLE_Y = 0.007f;
 
     private static final float SLIDE_X = 0.80f;
     private static final float SLIDE_Y = -0.35f;
@@ -79,8 +97,12 @@ public class FlashlightClient {
     private static final double SPIN = 0.12;
 
     private static final Vec3 LENS = toRig(0.0, 0.0, LENS_Z);
-    // Строим только один единственный объект Box для руки
-    private static final Box ARM = buildBox(toRig(ARM_GX, ARM_GY, ARM_GZ), dirOf(ARM_YAW, ARM_ELEV), ARM_LENGTH, ARM_WIDTH);
+
+    // ---------- сетка руки ----------
+    private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
+    /** Вершины: по 4 числа (x, y, z, затенение). */
+    private static final float[] ARM = buildArm();
+    private static final float[] FINGERS = buildFingers();
 
     private static void applyFlashTransform(PoseStack ps) {
         ps.translate(FLASH_X, FLASH_Y, FLASH_Z);
@@ -93,60 +115,94 @@ public class FlashlightClient {
     private static Vec3 toRig(double x, double y, double z) {
         PoseStack tmp = new PoseStack();
         applyFlashTransform(tmp);
-        Vector4f v = new Vector4f((float) x, (float) y, (float) z, 1f);
+        com.mojang.math.Vector4f v = new com.mojang.math.Vector4f((float) x, (float) y, (float) z, 1f);
         v.transform(tmp.last().pose());
         return new Vec3(v.x(), v.y(), v.z());
     }
+
+    // =====================================================================
+    //  Рука из двух прямоугольников (в стиле Minecraft)
+    // =====================================================================
 
     private static Vec3 dirOf(double yawDeg, double elevDeg) {
         double yaw = Math.toRadians(yawDeg), el = Math.toRadians(elevDeg);
         return new Vec3(Math.cos(el) * Math.cos(yaw), Math.sin(el), Math.cos(el) * Math.sin(yaw));
     }
 
-    private static final class Box {
-        final float[][] verts = new float[6][12];
-        final float[][] normals = new float[6][3];
+    /** Длинный прямоугольник сверху. Начало спрятано внутри фонарика, чтобы не было зазоров. */
+    private static float[] buildArm() {
+        List<float[]> out = new ArrayList<>();
+        Vec3 d = dirOf(ARM_YAW, ARM_ELEV).normalize();
+        double hide = 0.12;
+        Vec3 start = toRig(ARM_GX, ARM_GY, ARM_GZ).subtract(d.scale(hide));
+        double length = ARM_LENGTH + hide;
+        Vec3 helper = Math.abs(d.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
+        Vec3 un = d.cross(helper).normalize();
+        Vec3 u = un.scale(ARM_WIDTH / 2);
+        Vec3 v = d.cross(un).normalize().scale(ARM_WIDTH / 2);
+        addBox(out, start.add(d.scale(length / 2)), u, v, d.scale(length / 2));
+        return flatten(out);
     }
 
-    private static Box buildBox(Vec3 start, Vec3 dirIn, double length, double width) {
-        Vec3 d = dirIn.normalize();
-        Vec3 helper = Math.abs(d.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
-        Vec3 u = d.cross(helper).normalize();
-        Vec3 v = d.cross(u);
-        Vec3[] c = new Vec3[8];
-        int n = 0;
-        for (int s = 0; s < 2; s++) {
-            for (int a = -1; a <= 1; a += 2) {
-                for (int b = -1; b <= 1; b += 2) {
-                    c[n++] = start.add(d.scale(s * length)).add(u.scale(a * width / 2)).add(v.scale(b * width / 2));
-                }
-            }
-        }
-        Vec3 centre = start.add(d.scale(length / 2));
-        int[][] faces = {{0, 1, 3, 2}, {4, 5, 7, 6}, {0, 1, 5, 4}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 3, 7, 5}};
-        Box box = new Box();
-        for (int f = 0; f < 6; f++) {
-            Vec3 p0 = c[faces[f][0]], p1 = c[faces[f][1]], p2 = c[faces[f][2]], p3 = c[faces[f][3]];
-            Vec3 nrm = p1.subtract(p0).cross(p2.subtract(p1)).normalize();
-            Vec3 faceCentre = p0.add(p1).add(p2).add(p3).scale(0.25);
-            if (nrm.dot(faceCentre.subtract(centre)) < 0) {
-                Vec3 t = p1; p1 = p3; p3 = t;
-                nrm = nrm.scale(-1);
-            }
-            Vec3[] q = {p0, p1, p2, p3};
-            for (int i = 0; i < 4; i++) {
-                box.verts[f][i * 3] = (float) q[i].x;
-                box.verts[f][i * 3 + 1] = (float) q[i].y;
-                box.verts[f][i * 3 + 2] = (float) q[i].z;
-            }
-            box.normals[f][0] = (float) nrm.x;
-            box.normals[f][1] = (float) nrm.y;
-            box.normals[f][2] = (float) nrm.z;
-        }
-        return box;
+    /** Маленький прямоугольник под фонариком («три пальца»). */
+    private static float[] buildFingers() {
+        List<float[]> out = new ArrayList<>();
+        addBox(out, new Vec3(FING_CX, FING_CY, FING_CZ),
+                new Vec3(FING_HX, 0, 0), new Vec3(0, FING_HY, 0), new Vec3(0, 0, FING_HZ));
+        return flatten(out);
     }
+
+    private static float[] flatten(List<float[]> out) {
+        float[] arr = new float[out.size() * 4];
+        for (int i = 0; i < out.size(); i++) System.arraycopy(out.get(i), 0, arr, i * 4, 4);
+        return arr;
+    }
+
+    /** Коробка: центр c и три «полу-оси» ax, ay, az. */
+    private static void addBox(List<float[]> out, Vec3 c, Vec3 ax, Vec3 ay, Vec3 az) {
+        Vec3[] axes = {ax, ay, az};
+        for (int i = 0; i < 3; i++) {
+            Vec3 a = axes[i], b = axes[(i + 1) % 3], d = axes[(i + 2) % 3];
+            for (int sgn = -1; sgn <= 1; sgn += 2) {
+                Vec3 fc = c.add(a.scale(sgn));
+                Vec3 n = a.scale(sgn).normalize();
+                float shade = 0.72f + 0.28f * (float) Math.max(0.0, n.dot(LIGHT_DIR));
+                Vec3 p0 = fc.add(b).add(d), p1 = fc.subtract(b).add(d);
+                Vec3 p2 = fc.subtract(b).subtract(d), p3 = fc.add(b).subtract(d);
+                pushTri(out, p0, p1, p2, shade);
+                pushTri(out, p0, p2, p3, shade);
+            }
+        }
+    }
+
+    private static void pushTri(List<float[]> out, Vec3 a, Vec3 b, Vec3 c, float shade) {
+        out.add(new float[]{(float) a.x, (float) a.y, (float) a.z, shade});
+        out.add(new float[]{(float) b.x, (float) b.y, (float) b.z, shade});
+        out.add(new float[]{(float) c.x, (float) c.y, (float) c.z, shade});
+    }
+
+    private static void drawMesh(float[] d, Matrix4f m, float lightFactor) {
+        BufferBuilder bb = Tesselator.getInstance().getBuilder();
+        RenderSystem.disableBlend();
+        RenderSystem.enableDepthTest();
+        RenderSystem.depthMask(true);
+        RenderSystem.disableCull();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        bb.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+        for (int i = 0; i < d.length; i += 4) {
+            float sh = d[i + 3] * lightFactor;
+            bb.vertex(m, d[i], d[i + 1], d[i + 2]).color(HAND_R * sh, HAND_G * sh, HAND_B * sh, 1f).endVertex();
+        }
+        BufferUploader.drawWithShader(bb.end());
+        RenderSystem.enableCull();
+    }
+
+    // =====================================================================
+    //  Анимация
+    // =====================================================================
 
     private static float swX, swY, swVX, swVY, kick, lastYaw, lastPitch, time, appear;
+    private static float moveAmt, runAmt, phase;
     private static boolean swInit, lastOn;
     private static long lastNs;
     private static final long START_NS = System.nanoTime();
@@ -173,6 +229,30 @@ public class FlashlightClient {
 
         float target = on ? 1f : 0f;
         appear += Mth.clamp(target - appear, -dt * SLIDE_SPEED, dt * SLIDE_SPEED);
+
+        // Ходьба / бег: амплитуда и скорость плавно нарастают и затухают
+        double speed = p.getDeltaMovement().horizontalDistance();
+        boolean moving = p.isOnGround() && speed > 0.04;
+        boolean running = moving && p.isSprinting();
+        float k = 1f - (float) Math.exp(-dt * 7f);
+        moveAmt += ((moving ? 1f : 0f) - moveAmt) * k;
+        runAmt += ((running ? 1f : 0f) - runAmt) * k;
+        phase += dt * Mth.lerp(runAmt, WALK_SPEED, RUN_SPEED) * moveAmt;
+    }
+
+    /** Убирает ванильное покачивание руки (оно «перевёрнутой дугой»), чтобы остался только наш ход. */
+    private static void cancelVanillaBob(PoseStack ps, Player pl, float pt) {
+        float f = pl.walkDist - pl.walkDistO;
+        float f1 = -(pl.walkDist + f * pt);
+        float f2 = Mth.lerp(pt, pl.oBob, pl.bob);
+        float pi = (float) Math.PI;
+        float tx = Mth.sin(f1 * pi) * f2 * 0.5f;
+        float ty = -Math.abs(Mth.cos(f1 * pi) * f2);
+        float rz = Mth.sin(f1 * pi) * f2 * 3.0f;
+        float rx = Math.abs(Mth.cos(f1 * pi - 0.2f) * f2) * 5.0f;
+        ps.mulPose(Vector3f.XP.rotationDegrees(-rx));
+        ps.mulPose(Vector3f.ZP.rotationDegrees(-rz));
+        ps.translate(-tx, -ty, 0.0);
     }
 
     @SubscribeEvent
@@ -198,58 +278,53 @@ public class FlashlightClient {
         if (on) {
             light = LightTexture.pack(Math.max(LightTexture.block(light), 11), Math.max(LightTexture.sky(light), 11));
         }
+        float brightness = Math.max(LightTexture.block(light), LightTexture.sky(light)) / 15f;
+        float lightFactor = Mth.clamp(0.55f + 0.45f * brightness, 0.55f, 1f);
+
         float equip = e.getEquipProgress();
-        float breatheX = (float) Math.sin(time * 1.1f) * 0.002f;
-        float breatheY = (float) Math.sin(time * 1.7f) * 0.003f;
         float ease = appear * appear * (3f - 2f * appear);
         float slide = 1f - ease;
 
+        // Ход: дуга выпуклая ВВЕРХ (∩). x = sin(фаза), y = cos(2*фаза) = 1 - 2x²
+        float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
+        float wy = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
+        float wRoll = (float) Math.sin(phase) * Mth.lerp(runAmt, 1.5f, 3.0f) * moveAmt;
+        float wPitch = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, 0.6f, 1.4f) * moveAmt;
+
+        // Покой: мягкое волнообразное «дыхание» (слабее при ходьбе)
+        float idle = 1f - moveAmt * 0.6f;
+        float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
+        float by = ((float) Math.sin(time * 1.25f) * IDLE_Y + (float) Math.sin(time * 0.55f) * IDLE_Y * 0.45f) * idle;
+        float bRoll = (float) Math.sin(time * 0.8f) * 0.6f * idle;
+        float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 0.5f * idle;
+
         ps.pushPose();
-        ps.translate(swX + breatheX, swY + breatheY - equip * 0.6f, 0.0);
-        ps.mulPose(Vector3f.ZP.rotationDegrees(swX * -35f));
-        ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f));
+        if (mc.options.bobView().get()) {
+            cancelVanillaBob(ps, pl, e.getPartialTick());
+        }
+        ps.translate(swX + bx + wx, swY + by + wy - equip * 0.6f, 0.0);
+        ps.mulPose(Vector3f.ZP.rotationDegrees(swX * -35f + bRoll + wRoll));
+        ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch + wPitch));
         ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
 
         if (on) {
             drawRays(ps.last().pose(), ease);
         }
 
+        // Фонарик и рука — в одной системе координат, поэтому двигаются синхронно
         ps.pushPose();
         applyFlashTransform(ps);
         mc.getItemRenderer().renderStatic(stack, ItemTransforms.TransformType.NONE, light,
                 OverlayTexture.NO_OVERLAY, ps, buf, 0);
-        ps.popPose();
-
         if (buf instanceof MultiBufferSource.BufferSource bs) {
             bs.endBatch();
         }
-        VertexConsumer vc = buf.getBuffer(RenderType.entitySolid(pl.getSkinTextureLocation()));
-        // Рисуем только одну цельную руку без разделения на пальцы
-        drawBox(vc, ps, ARM, light);
+        drawMesh(FINGERS, ps.last().pose(), lightFactor);
+        ps.popPose();
+
+        drawMesh(ARM, ps.last().pose(), lightFactor);
 
         ps.popPose();
-    }
-
-    private static void drawBox(VertexConsumer vc, PoseStack ps, Box box, int light) {
-        Matrix4f m = ps.last().pose();
-        Matrix3f nm = ps.last().normal();
-        for (int f = 0; f < 6; f++) {
-            float[] v = box.verts[f];
-            float[] n = box.normals[f];
-
-            float faceShade = Mth.clamp(0.82f + Math.max(0f, n[1]) * 0.18f, 0.72f, 1.0f);
-            float r = faceShade, g = faceShade, b = faceShade;
-
-            for (int i = 0; i < 4; i++) {
-                vc.vertex(m, v[i * 3], v[i * 3 + 1], v[i * 3 + 2])
-                        .color(r, g, b, 1f)
-                        .uv(SKIN_U, SKIN_V)
-                        .overlayCoords(OverlayTexture.NO_OVERLAY)
-                        .uv2(light)
-                        .normal(nm, n[0], n[1], n[2])
-                        .endVertex();
-            }
-        }
     }
 
     private static float pulse(int i, double t) {
