@@ -258,14 +258,14 @@ public class FlashlightClient {
     @SubscribeEvent
     public static void onRenderHand(RenderHandEvent e) {
         ItemStack stack = e.getItemStack();
-        if (!stack.is(SlenderFlashlightMod.FLASHLIGHT.get())) return;
+        if (!(stack.getItem() instanceof FlashlightItem)) return;
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer pl = mc.player;
         if (pl == null) return;
         e.setCanceled(true);
 
         if (e.getHand() != InteractionHand.MAIN_HAND
-                && pl.getMainHandItem().is(SlenderFlashlightMod.FLASHLIGHT.get())) return;
+                && pl.getMainHandItem().getItem() instanceof FlashlightItem) return;
 
         boolean on = FlashlightItem.isOn(stack);
         updateSway(pl, e.getPartialTick(), on);
