@@ -64,12 +64,15 @@ public class FlashlightClient {
     private static final double FING_HX = 0.17, FING_HY = 0.05, FING_HZ = 0.11;
 
     // ---------- ходьба / бег ----------
-    private static final float WALK_AMP_X = 0.030f;
-    private static final float RUN_AMP_X = 0.060f;
-    private static final float WALK_AMP_Y = 0.016f;
-    private static final float RUN_AMP_Y = 0.034f;
-    private static final float WALK_SPEED = 6.0f;
-    private static final float RUN_SPEED = 9.0f;
+    // Walking (with the camera: Slowness II): the hand goes along a wave - side to side, with a snake-like up/down wave
+    // (1.5 waves from one end to the other). Running (Slowness I): a wide swing from side to side along an UPPER arc.
+    // The speed of the steps follows the REAL speed of the player (so Slowness 1 / 2 changes it by itself).
+    private static final float WALK_AMP_X = 0.032f;
+    private static final float RUN_AMP_X = 0.070f;
+    private static final float WALK_AMP_Y = 0.022f;
+    private static final float RUN_AMP_Y = 0.040f;
+    /** radians of the gait cycle per block walked (one cycle = two steps): 1.4 gives 6 rad/s at the normal walking speed. */
+    private static final float GAIT_PER_BLOCK = 1.4f;
 
     // ---------- плавное «дыхание» в покое ----------
     private static final float IDLE_X = 0.006f;
@@ -237,7 +240,22 @@ public class FlashlightClient {
         float k = 1f - (float) Math.exp(-dt * 7f);
         moveAmt += ((moving ? 1f : 0f) - moveAmt) * k;
         runAmt += ((running ? 1f : 0f) - runAmt) * k;
-        phase += dt * Mth.lerp(runAmt, WALK_SPEED, RUN_SPEED) * moveAmt;
+        // the cycle advances with the real speed (blocks per second): slower (Slowness) = slower steps
+        float bps = moving ? (float) speed * 20f : 0f;
+        phase += dt * GAIT_PER_BLOCK * bps;
+        if (phase > 6.2831853f) phase -= 6.2831853f;
+        gaitNs = now;
+    }
+
+    private static long gaitNs;
+
+    /**
+     * Read by the camera mod (by reflection) so the view and the hand swing in step:
+     * {phase, how much the player walks 0..1, how much he runs 0..1, 1 if this is live}.
+     */
+    public static float[] gaitState() {
+        boolean live = (System.nanoTime() - gaitNs) < 250_000_000L;
+        return new float[]{phase, moveAmt, runAmt, live ? 1f : 0f};
     }
 
     /** Убирает ванильное покачивание руки (оно «перевёрнутой дугой»), чтобы остался только наш ход. */
@@ -287,9 +305,12 @@ public class FlashlightClient {
 
         // Ход: дуга выпуклая ВВЕРХ (∩). x = sin(фаза), y = cos(2*фаза) = 1 - 2x²
         float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
-        float wy = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
-        float wRoll = (float) Math.sin(phase) * Mth.lerp(runAmt, 1.5f, 3.0f) * moveAmt;
-        float wPitch = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, 0.6f, 1.4f) * moveAmt;
+        // walking: snake wave -sin(3*phase); running: upper arc cos(2*phase) (the middle is the highest point)
+        float waveY = (float) -Math.sin(3 * phase) * WALK_AMP_Y;
+        float arcY = (float) Math.cos(2 * phase) * RUN_AMP_Y;
+        float wy = Mth.lerp(runAmt, waveY, arcY) * moveAmt;
+        float wRoll = (float) Math.sin(phase) * Mth.lerp(runAmt, 1.5f, 3.4f) * moveAmt;
+        float wPitch = Mth.lerp(runAmt, waveY * 25f, arcY * 20f) * moveAmt;
 
         // Покой: мягкое волнообразное «дыхание» (слабее при ходьбе)
         float idle = 1f - moveAmt * 0.6f;
