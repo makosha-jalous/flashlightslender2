@@ -26,6 +26,12 @@ import java.util.*;
 @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID)
 public class FlashlightLight {
 
+    /**
+     * false = no light blocks at all (the cube-shaped Minecraft light is gone). The real light of the flashlight comes from
+     * the shader (BSL_v10.1p1_Flashlight). Set to true to get the old block light back when playing WITHOUT the shader.
+     */
+    private static final boolean ENABLED = false;
+
     private static final double RANGE = 22;
 
     private static final double[] FRACTION = {0.15, 0.35, 0.55, 0.78, 1.00};
@@ -46,6 +52,13 @@ public class FlashlightLight {
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent e) {
         if (e.phase != TickEvent.Phase.END) return;
+        if (!ENABLED) {
+            if (!TRACKS.isEmpty()) {          // remove any light blocks that are still standing
+                for (Track t : TRACKS.values()) clear(t);
+                TRACKS.clear();
+            }
+            return;
+        }
         MinecraftServer srv = ServerLifecycleHooks.getCurrentServer();
         if (srv == null || srv.getTickCount() % 2 != 0) return;
 
