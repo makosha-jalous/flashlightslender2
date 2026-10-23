@@ -158,9 +158,9 @@ public class FlashlightFocus {
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
         RenderSystem.setShaderTexture(0, new ResourceLocation("textures/gui/widgets.png"));
         if (p.getMainArm().getOpposite() == HumanoidArm.LEFT) {
-            GuiComponent.blit(ps, i - 91 - 29, h - 23, 24, 22, 29, 24);
+            GuiComponent.blit(ps, i - 91 - 29, h - 23, 0, 24f, 22f, 29, 24, 256, 256);
         } else {
-            GuiComponent.blit(ps, i + 91, h - 23, 53, 22, 29, 24);
+            GuiComponent.blit(ps, i + 91, h - 23, 0, 53f, 22f, 29, 24, 256, 256);
         }
         RenderSystem.disableBlend();
     }
