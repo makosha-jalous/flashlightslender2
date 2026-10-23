@@ -71,8 +71,9 @@ public class FlashlightClient {
     private static final float RUN_AMP_X = 0.070f;
     private static final float WALK_AMP_Y = 0.022f;
     private static final float RUN_AMP_Y = 0.040f;
-    /** radians of the gait cycle per block walked (one cycle = two steps): 1.4 gives 6 rad/s at the normal walking speed. */
-    private static final float GAIT_PER_BLOCK = 1.4f;
+    /** One full left-right swing = one step. Walking: one step per 1.5 s; running: one step per 0.5 s (2 steps a second). */
+    private static final float WALK_RATE = 6.2831853f / 1.5f;
+    private static final float RUN_RATE = 6.2831853f / 0.5f;
 
     // ---------- плавное «дыхание» в покое ----------
     private static final float IDLE_X = 0.006f;
@@ -240,9 +241,8 @@ public class FlashlightClient {
         float k = 1f - (float) Math.exp(-dt * 7f);
         moveAmt += ((moving ? 1f : 0f) - moveAmt) * k;
         runAmt += ((running ? 1f : 0f) - runAmt) * k;
-        // the cycle advances with the real speed (blocks per second): slower (Slowness) = slower steps
-        float bps = moving ? (float) speed * 20f : 0f;
-        phase += dt * GAIT_PER_BLOCK * bps;
+        // fixed pace (the camera always gives Slowness II walking / Slowness I running): 1.5 s and 0.5 s per swing
+        if (moving) phase += dt * Mth.lerp(runAmt, WALK_RATE, RUN_RATE);
         if (phase > 6.2831853f) phase -= 6.2831853f;
         gaitNs = now;
     }
@@ -323,9 +323,11 @@ public class FlashlightClient {
         if (mc.options.bobView().get()) {
             cancelVanillaBob(ps, pl, e.getPartialTick());
         }
-        ps.translate(swX + bx + wx, swY + by + wy - equip * 0.6f, 0.0);
-        ps.mulPose(Vector3f.ZP.rotationDegrees(swX * -35f + bRoll + wRoll));
-        ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch + wPitch));
+        // long-range light: the hand and the flashlight stand still
+        float still = 1f - FlashlightFocus.amount();
+        ps.translate((swX + bx + wx) * still, (swY + by + wy) * still - equip * 0.6f, 0.0);
+        ps.mulPose(Vector3f.ZP.rotationDegrees((swX * -35f + bRoll + wRoll) * still));
+        ps.mulPose(Vector3f.XP.rotationDegrees((kick * 4f + bPitch + wPitch) * still));
         ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
 
         if (on) {
@@ -362,13 +364,15 @@ public class FlashlightClient {
         Vec3 helper = Math.abs(dir.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
         Vec3 p = dir.cross(helper).normalize();
         Vec3 q = dir.cross(p);
-        double tan = Math.tan(Math.toRadians(RAY_HALF_ANGLE));
+        float foc = FlashlightFocus.amount();
+        double tan = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_HALF_ANGLE, 4.5f)));
+        float rayLen = Mth.lerp(foc, RAY_LENGTH, 2.8f);
         double[] at = {0.0, RAY_MID, 1.0};
         float[] al = {alpha * 0.3f, alpha, 0f};
         Vec3[][] ring = new Vec3[3][RING];
         for (int s = 0; s < 3; s++) {
-            Vec3 centre = LENS.add(dir.scale(RAY_LENGTH * at[s]));
-            double radius = RAY_START_RADIUS + RAY_LENGTH * at[s] * tan;
+            Vec3 centre = LENS.add(dir.scale(rayLen * at[s]));
+            double radius = RAY_START_RADIUS + rayLen * at[s] * tan;
             for (int k = 0; k < RING; k++) {
                 double a = 2 * Math.PI * k / RING;
                 ring[s][k] = centre.add(p.scale(Math.cos(a) * radius)).add(q.scale(Math.sin(a) * radius));
@@ -396,11 +400,11 @@ public class FlashlightClient {
 
         double t = (System.nanoTime() - START_NS) / 1e9;
         double spin = RAY_PHASE + t * SPIN;
-        double off = Math.tan(Math.toRadians(RAY_OFFSET));
+        double off = Math.tan(Math.toRadians(Mth.lerp(FlashlightFocus.amount(), RAY_OFFSET, 7.0f)));
         for (int i = 0; i < RAYS; i++) {
             double phi = 2 * Math.PI * i / RAYS + spin;
             Vec3 dir = new Vec3(off * Math.cos(phi), off * Math.sin(phi), -1.0).normalize();
-            drawRay(bb, m, dir, RAY_ALPHA * visible * pulse(i, t));
+            drawRay(bb, m, dir, RAY_ALPHA * visible * pulse(i, t) * (1f + 0.6f * FlashlightFocus.amount()));
         }
         BufferUploader.drawWithShader(bb.end());
 
