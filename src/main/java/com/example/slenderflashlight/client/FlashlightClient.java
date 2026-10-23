@@ -330,10 +330,10 @@ public class FlashlightClient {
             cancelVanillaBob(ps, pl, e.getPartialTick());
         }
         // long-range light: the hand and the flashlight stand still
-        float still = 1f - FlashlightFocus.amount();
-        ps.translate((swX + bx + wx) * still, (swY + by + wy) * still - equip * 0.6f, 0.0);
-        ps.mulPose(Vector3f.ZP.rotationDegrees((swX * -35f + bRoll + wRoll) * still));
-        ps.mulPose(Vector3f.XP.rotationDegrees((kick * 4f + bPitch + wPitch) * still));
+        // the hand keeps its normal motion in the long-range mode too
+        ps.translate(swX + bx + wx, swY + by + wy - equip * 0.6f, 0.0);
+        ps.mulPose(Vector3f.ZP.rotationDegrees(swX * -35f + bRoll + wRoll));
+        ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch + wPitch));
         ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
 
         if (on) {
