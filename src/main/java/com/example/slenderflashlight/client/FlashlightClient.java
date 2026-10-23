@@ -67,17 +67,17 @@ public class FlashlightClient {
     // Walking (with the camera: Slowness II): the hand goes along a wave - side to side, with a snake-like up/down wave
     // (1.5 waves from one end to the other). Running (Slowness I): a wide swing from side to side along an UPPER arc.
     // The speed of the steps follows the REAL speed of the player (so Slowness 1 / 2 changes it by itself).
-    private static final float WALK_AMP_X = 0.032f;
+    private static final float WALK_AMP_X = 0.036f;
     private static final float RUN_AMP_X = 0.070f;
-    private static final float WALK_AMP_Y = 0.022f;
+    private static final float WALK_AMP_Y = 0.020f;
     private static final float RUN_AMP_Y = 0.040f;
-    /** One full left-right swing = one step. Walking: one step per 1.5 s; running: one step per 0.5 s (2 steps a second). */
-    private static final float WALK_RATE = 6.2831853f / 1.5f;
-    private static final float RUN_RATE = 6.2831853f / 0.5f;
+    /** One full swing (right and back) = two steps. Walking: a step every 0.8 s (a swing 1.6 s); running: a step every 0.6 s (a swing 1.2 s). */
+    private static final float WALK_RATE = 6.2831853f / 1.6f;
+    private static final float RUN_RATE = 6.2831853f / 1.2f;
 
     // ---------- плавное «дыхание» в покое ----------
-    private static final float IDLE_X = 0.006f;
-    private static final float IDLE_Y = 0.007f;
+    private static final float IDLE_X = 0.013f;
+    private static final float IDLE_Y = 0.016f;
 
     private static final float SLIDE_X = 0.80f;
     private static final float SLIDE_Y = -0.35f;
@@ -247,7 +247,8 @@ public class FlashlightClient {
         gaitNs = now;
     }
 
-    private static long gaitNs;
+    private static long gaitNs, lastHeldNs;
+    private static float heldTime;
 
     /**
      * Read by the camera mod (by reflection) so the view and the hand swing in step:
@@ -287,6 +288,10 @@ public class FlashlightClient {
 
         boolean on = FlashlightItem.isOn(stack);
         updateSway(pl, e.getPartialTick(), on);
+        long nowH = System.nanoTime();
+        if (nowH - lastHeldNs > 200_000_000L) heldTime = 0f;
+        heldTime += Math.min(0.05f, (nowH - lastHeldNs) / 1e9f);
+        lastHeldNs = nowH;
 
         if (!on && appear <= 0.001f) return;
 
@@ -299,25 +304,26 @@ public class FlashlightClient {
         float brightness = Math.max(LightTexture.block(light), LightTexture.sky(light)) / 15f;
         float lightFactor = Mth.clamp(0.55f + 0.45f * brightness, 0.55f, 1f);
 
-        float equip = e.getEquipProgress();
+        // only the real equip animation counts: pressing the left mouse button (the "hit") must not move the hand
+        float equip = heldTime < 0.6f ? e.getEquipProgress() : 0f;
         float ease = appear * appear * (3f - 2f * appear);
         float slide = 1f - ease;
 
         // Ход: дуга выпуклая ВВЕРХ (∩). x = sin(фаза), y = cos(2*фаза) = 1 - 2x²
         float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
-        // walking: snake wave -sin(3*phase); running: upper arc cos(2*phase) (the middle is the highest point)
-        float waveY = (float) -Math.sin(3 * phase) * WALK_AMP_Y;
+        // walking and running: an UPPER arc (the middle is the highest point), smaller when walking
+        float waveY = (float) Math.cos(2 * phase) * WALK_AMP_Y;
         float arcY = (float) Math.cos(2 * phase) * RUN_AMP_Y;
         float wy = Mth.lerp(runAmt, waveY, arcY) * moveAmt;
-        float wRoll = (float) Math.sin(phase) * Mth.lerp(runAmt, 1.5f, 3.4f) * moveAmt;
-        float wPitch = Mth.lerp(runAmt, waveY * 25f, arcY * 20f) * moveAmt;
+        float wRoll = (float) Math.sin(phase) * Mth.lerp(runAmt, 2.0f, 3.4f) * moveAmt;
+        float wPitch = Mth.lerp(runAmt, waveY * 20f, arcY * 20f) * moveAmt;
 
         // Покой: мягкое волнообразное «дыхание» (слабее при ходьбе)
         float idle = 1f - moveAmt * 0.6f;
         float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
         float by = ((float) Math.sin(time * 1.25f) * IDLE_Y + (float) Math.sin(time * 0.55f) * IDLE_Y * 0.45f) * idle;
-        float bRoll = (float) Math.sin(time * 0.8f) * 0.6f * idle;
-        float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 0.5f * idle;
+        float bRoll = (float) Math.sin(time * 0.8f) * 1.3f * idle;
+        float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
 
         ps.pushPose();
         if (mc.options.bobView().get()) {

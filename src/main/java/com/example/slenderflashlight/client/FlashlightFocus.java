@@ -37,8 +37,9 @@ import net.minecraftforge.fml.common.Mod;
 @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID, value = Dist.CLIENT)
 public class FlashlightFocus {
 
-    private static final Item[] MARKERS = {Items.BARRIER, Items.STRUCTURE_VOID, Items.LIGHT, Items.BEDROCK};
-    private static final float SECONDS_TO_FOCUS = 0.30f;
+    private static final Item[] MARKERS = {Items.BARRIER, Items.STRUCTURE_VOID, Items.LIGHT, Items.BEDROCK,
+            Items.COMMAND_BLOCK, Items.CHAIN_COMMAND_BLOCK, Items.REPEATING_COMMAND_BLOCK, Items.JIGSAW};
+    private static final float SECONDS_TO_FOCUS = 1.0f;
 
     private static float amount;
     private static boolean wasHeld;
@@ -50,6 +51,11 @@ public class FlashlightFocus {
     /** 0 = normal beam, 1 = fully concentrated (smooth, per rendered frame). */
     public static float amount() {
         return amount;
+    }
+
+    /** What was in the off hand before the marker took its place (the camera mod needs it to keep its interface). */
+    public static ItemStack savedOffhand() {
+        return hasSaved ? saved : ItemStack.EMPTY;
     }
 
     /** The plain click (not positional, not panned): used for on/off and for the long-range light. */
@@ -114,9 +120,9 @@ public class FlashlightFocus {
         }
 
         float target = held ? 1f : 0f;
-        amount += Mth.clamp(target - amount, -dt / SECONDS_TO_FOCUS, dt / SECONDS_TO_FOCUS);
+        amount = target;      // the change is instant (one frame), both ways
 
-        int stage = Math.round(amount * MARKERS.length);
+        int stage = amount > 0.5f ? 1 : 0;
         if (!FlashlightItem.isOn(p.getMainHandItem())) {
             stage = 0;
             amount = 0f;
