@@ -39,9 +39,14 @@ public class FlashlightItem extends Item {
             if (!tag.isEmpty()) swapped.setTag(tag);
         }
 
-        level.playSound(null, player.getX(), player.getEyeY(), player.getZ(),
-                SlenderFlashlightMod.FLASHLIGHT_CLICK.get(),
-                SoundSource.PLAYERS, 0.7F, 1.0F);
+        if (level.isClientSide()) {
+            // the player hears a plain (not positional) click; the others hear it from the server
+            com.example.slenderflashlight.client.FlashlightFocus.click();
+        } else {
+            level.playSound(player, player.getX(), player.getEyeY(), player.getZ(),
+                    SlenderFlashlightMod.FLASHLIGHT_CLICK.get(),
+                    SoundSource.PLAYERS, 0.7F, 1.0F);
+        }
         return InteractionResultHolder.sidedSuccess(swapped, level.isClientSide());
     }
 
