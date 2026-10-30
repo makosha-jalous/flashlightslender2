@@ -118,8 +118,6 @@ public class FlashlightClient {
     private static final Vec3 AXIS = new Vec3(0.0, 0.0, -AIM_DIST).subtract(LENS).normalize();
     /** running: the cone turns this much MORE than the head (degrees), so it sweeps wider than the flashlight itself. */
     private static final float RUN_CONE_YAW = 7f;
-    /** the picture of the cone's cross-section (used in the long-range mode). */
-    private static final ResourceLocation BEAM_TEX = new ResourceLocation(SlenderFlashlightMod.ID, "textures/misc/flashlight_beam.png");
     /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
     private static final Vec3 WRIST = toRig(0.15, 0.05, 0.2);
 
@@ -454,33 +452,6 @@ public class FlashlightClient {
         }
     }
 
-    /** Long-range mode: the picture of the cone's cross-section, a few slices along the beam (smaller near the head, bigger away from it). */
-    private static void drawBeamDiscs(Matrix4f m, float amount) {
-        Vec3 helper = Math.abs(AXIS.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
-        Vec3 p = AXIS.cross(helper).normalize();
-        Vec3 q = AXIS.cross(p);
-        float foc = FlashlightFocus.amount();
-        double fullTan = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_HALF_ANGLE, 4.5f) + Mth.lerp(foc, RAY_OFFSET, 7.0f)));
-        float rayLen = Mth.lerp(foc, RAY_LENGTH, 2.8f);
-        float[] at = {0.35f, 0.60f, 0.82f, 1.0f};
-        BufferBuilder bb = Tesselator.getInstance().getBuilder();
-        RenderSystem.setShader(GameRenderer::getPositionColorTexShader);
-        RenderSystem.setShaderTexture(0, BEAM_TEX);
-        bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
-        for (float f : at) {
-            Vec3 c = LENS.add(AXIS.scale(rayLen * f));
-            double r = RAY_START_RADIUS + rayLen * f * fullTan;
-            float a = Mth.clamp(amount * 0.22f * (0.6f + 0.4f * f), 0f, 1f);
-            Vec3 pr = p.scale(r), qr = q.scale(r);
-            Vec3 v0 = c.subtract(pr).subtract(qr), v1 = c.add(pr).subtract(qr), v2 = c.add(pr).add(qr), v3 = c.subtract(pr).add(qr);
-            bb.vertex(m, (float) v0.x, (float) v0.y, (float) v0.z).color(1f, 0.96f, 0.84f, a).uv(0f, 1f).endVertex();
-            bb.vertex(m, (float) v1.x, (float) v1.y, (float) v1.z).color(1f, 0.96f, 0.84f, a).uv(1f, 1f).endVertex();
-            bb.vertex(m, (float) v2.x, (float) v2.y, (float) v2.z).color(1f, 0.96f, 0.84f, a).uv(1f, 0f).endVertex();
-            bb.vertex(m, (float) v3.x, (float) v3.y, (float) v3.z).color(1f, 0.96f, 0.84f, a).uv(0f, 0f).endVertex();
-        }
-        BufferUploader.drawWithShader(bb.end());
-    }
-
     private static void drawRays(Matrix4f m, float visible) {
         BufferBuilder bb = Tesselator.getInstance().getBuilder();
         RenderSystem.enableBlend();
@@ -504,11 +475,6 @@ public class FlashlightClient {
             drawRay(bb, m, dir, RAY_ALPHA * visible * pulse(i, t) * (1f + 0.6f * FlashlightFocus.amount()));
         }
         BufferUploader.drawWithShader(bb.end());
-
-        float foc = FlashlightFocus.amount();
-        if (foc > 0.01f) {
-            drawBeamDiscs(m, visible * foc);
-        }
 
         RenderSystem.enableCull();
         RenderSystem.depthMask(true);
