@@ -113,6 +113,13 @@ public class FlashlightClient {
     private static final double SPIN = 0.12;
 
     private static final Vec3 LENS = toRig(0.0, 0.0, LENS_Z);
+    /** the beam leaves the HEAD and aims at the point straight ahead of the camera (the crosshair), like in the original. */
+    private static final double AIM_DIST = 6.0;
+    private static final Vec3 AXIS = new Vec3(0.0, 0.0, -AIM_DIST).subtract(LENS).normalize();
+    /** running: the cone turns this much MORE than the head (degrees), so it sweeps wider than the flashlight itself. */
+    private static final float RUN_CONE_YAW = 7f;
+    /** the picture of the cone's cross-section (used in the long-range mode). */
+    private static final ResourceLocation BEAM_TEX = new ResourceLocation(SlenderFlashlightMod.ID, "textures/misc/flashlight_beam.png");
     /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
     private static final Vec3 WRIST = toRig(0.15, 0.05, 0.2);
 
@@ -228,6 +235,7 @@ public class FlashlightClient {
     private static void updateSway(LocalPlayer p, float pt, boolean on) {
         long now = System.nanoTime();
         float dt = swInit ? Math.min(0.05f, (now - lastNs) / 1e9f) : 0.016f;
+        float dtGait = swInit ? Math.min(0.25f, (now - lastNs) / 1e9f) : 0.016f; // the step phase never slows down at low fps
         lastNs = now;
         float yaw = p.getViewYRot(pt), pitch = p.getViewXRot(pt);
         if (!swInit) { lastYaw = yaw; lastPitch = pitch; lastOn = on; swInit = true; }
@@ -236,10 +244,17 @@ public class FlashlightClient {
 
         swVX += -dy * IMPULSE;
         swVY += dp * IMPULSE;
-        swVX += (-SPRING_K * swX - SPRING_C * swVX) * dt;
-        swVY += (-SPRING_K * swY - SPRING_C * swVY) * dt;
-        swX = Mth.clamp(swX + swVX * dt, -MAX_OFFSET, MAX_OFFSET);
-        swY = Mth.clamp(swY + swVY * dt, -MAX_OFFSET, MAX_OFFSET);
+        // small fixed steps: the spring stays smooth at any frame rate, and the limit is soft (no sudden stop)
+        int steps = Math.max(1, (int) Math.ceil(dt / 0.008f));
+        float h = dt / steps;
+        for (int i = 0; i < steps; i++) {
+            swVX += (-SPRING_K * swX - SPRING_C * swVX) * h;
+            swVY += (-SPRING_K * swY - SPRING_C * swVY) * h;
+            swX += swVX * h;
+            swY += swVY * h;
+        }
+        swX = (float) (MAX_OFFSET * Math.tanh(swX / MAX_OFFSET));
+        swY = (float) (MAX_OFFSET * Math.tanh(swY / MAX_OFFSET));
 
         if (on != lastOn) { kick = 1f; lastOn = on; }
         kick *= (float) Math.exp(-dt * 10f);
@@ -256,7 +271,7 @@ public class FlashlightClient {
         moveAmt += ((moving ? 1f : 0f) - moveAmt) * k;
         runAmt += ((running ? 1f : 0f) - runAmt) * k;
         // fixed pace (the camera always gives Slowness II walking / Slowness I running): 1.5 s and 0.5 s per swing
-        if (moving) phase += dt * Mth.lerp(runAmt, WALK_RATE, RUN_RATE);
+        if (moving) phase += dtGait * Mth.lerp(runAmt, WALK_RATE, RUN_RATE);
         if (phase > 6.2831853f) phase -= 6.2831853f;
         gaitNs = now;
     }
@@ -351,8 +366,8 @@ public class FlashlightClient {
         // RUNNING only (walking stays as it was): the whole rig also turns about the WRIST, so the HEAD of the flashlight
         // swings wide from side to side, and the cone of light (drawn below with the same matrix) follows it
         float headK = runAmt * moveAmt;
+        float sw = (float) Math.sin(phase) * headK;
         if (headK > 0.001f) {
-            float sw = (float) Math.sin(phase) * headK;
             ps.translate(WRIST.x, WRIST.y, WRIST.z);
             ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_HEAD_YAW));
             ps.mulPose(Vector3f.ZP.rotationDegrees(sw * RUN_HEAD_ROLL));
@@ -361,7 +376,13 @@ public class FlashlightClient {
         ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
 
         if (on) {
+            // the cone is fixed to the head: it turns with it (same matrix) and, running, sweeps a little wider than the head
+            ps.pushPose();
+            ps.translate(LENS.x, LENS.y, LENS.z);
+            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_CONE_YAW));
+            ps.translate(-LENS.x, -LENS.y, -LENS.z);
             drawRays(ps.last().pose(), ease);
+            ps.popPose();
         }
 
         // Фонарик и рука — в одной системе координат, поэтому двигаются синхронно
@@ -433,6 +454,33 @@ public class FlashlightClient {
         }
     }
 
+    /** Long-range mode: the picture of the cone's cross-section, a few slices along the beam (smaller near the head, bigger away from it). */
+    private static void drawBeamDiscs(Matrix4f m, float amount) {
+        Vec3 helper = Math.abs(AXIS.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
+        Vec3 p = AXIS.cross(helper).normalize();
+        Vec3 q = AXIS.cross(p);
+        float foc = FlashlightFocus.amount();
+        double fullTan = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_HALF_ANGLE, 4.5f) + Mth.lerp(foc, RAY_OFFSET, 7.0f)));
+        float rayLen = Mth.lerp(foc, RAY_LENGTH, 2.8f);
+        float[] at = {0.35f, 0.60f, 0.82f, 1.0f};
+        BufferBuilder bb = Tesselator.getInstance().getBuilder();
+        RenderSystem.setShader(GameRenderer::getPositionColorTexShader);
+        RenderSystem.setShaderTexture(0, BEAM_TEX);
+        bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
+        for (float f : at) {
+            Vec3 c = LENS.add(AXIS.scale(rayLen * f));
+            double r = RAY_START_RADIUS + rayLen * f * fullTan;
+            float a = Mth.clamp(amount * 0.22f * (0.6f + 0.4f * f), 0f, 1f);
+            Vec3 pr = p.scale(r), qr = q.scale(r);
+            Vec3 v0 = c.subtract(pr).subtract(qr), v1 = c.add(pr).subtract(qr), v2 = c.add(pr).add(qr), v3 = c.subtract(pr).add(qr);
+            bb.vertex(m, (float) v0.x, (float) v0.y, (float) v0.z).color(1f, 0.96f, 0.84f, a).uv(0f, 1f).endVertex();
+            bb.vertex(m, (float) v1.x, (float) v1.y, (float) v1.z).color(1f, 0.96f, 0.84f, a).uv(1f, 1f).endVertex();
+            bb.vertex(m, (float) v2.x, (float) v2.y, (float) v2.z).color(1f, 0.96f, 0.84f, a).uv(1f, 0f).endVertex();
+            bb.vertex(m, (float) v3.x, (float) v3.y, (float) v3.z).color(1f, 0.96f, 0.84f, a).uv(0f, 0f).endVertex();
+        }
+        BufferUploader.drawWithShader(bb.end());
+    }
+
     private static void drawRays(Matrix4f m, float visible) {
         BufferBuilder bb = Tesselator.getInstance().getBuilder();
         RenderSystem.enableBlend();
@@ -449,10 +497,18 @@ public class FlashlightClient {
         double off = Math.tan(Math.toRadians(Mth.lerp(FlashlightFocus.amount(), RAY_OFFSET, 7.0f)));
         for (int i = 0; i < RAYS; i++) {
             double phi = 2 * Math.PI * i / RAYS + spin;
-            Vec3 dir = new Vec3(off * Math.cos(phi), off * Math.sin(phi), -1.0).normalize();
+            Vec3 helper = Math.abs(AXIS.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
+            Vec3 ap = AXIS.cross(helper).normalize();
+            Vec3 aq = AXIS.cross(ap);
+            Vec3 dir = AXIS.add(ap.scale(off * Math.cos(phi))).add(aq.scale(off * Math.sin(phi))).normalize();
             drawRay(bb, m, dir, RAY_ALPHA * visible * pulse(i, t) * (1f + 0.6f * FlashlightFocus.amount()));
         }
         BufferUploader.drawWithShader(bb.end());
+
+        float foc = FlashlightFocus.amount();
+        if (foc > 0.01f) {
+            drawBeamDiscs(m, visible * foc);
+        }
 
         RenderSystem.enableCull();
         RenderSystem.depthMask(true);
