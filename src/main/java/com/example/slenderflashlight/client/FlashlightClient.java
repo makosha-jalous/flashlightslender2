@@ -18,6 +18,8 @@ import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.block.model.ItemTransforms;
+import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
@@ -39,14 +41,24 @@ import java.util.List;
 public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
-    private static final float FLASH_X = 0.937f;
-    private static final float FLASH_Y = -0.605f;
+    // fitted to the screenshot of the original game (head, thumb and forearm line up with it)
+    private static final float FLASH_X = 0.793f;
+    private static final float FLASH_Y = -0.569f;
     private static final float FLASH_Z = -1.0f;
-    private static final float FLASH_SCALE = 0.794f;
-    private static final float FLASH_YAW = -2.861f;
-    private static final float FLASH_PITCH = 13.275f;
-    private static final float FLASH_ROLL = 0.586f;
+    private static final float FLASH_SCALE = 0.815f;
+    private static final float FLASH_YAW = 16.25f;
+    private static final float FLASH_PITCH = 0.13f;
+    private static final float FLASH_ROLL = 23.04f;
+    /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
+    private static final float RUN_HEAD_YAW = 13f;
+    private static final float RUN_HEAD_ROLL = 6f;
     private static final float LENS_Z = -0.475f;
+
+    // ---------- РУКА ИЗ МОДЕЛИ (Blockbench) ----------
+    /** the hand as an ordinary item model: assets/slenderflashlight/models/item/flashlight_hand.json (open it in Blockbench). */
+    public static final ResourceLocation HAND_MODEL = new ResourceLocation(SlenderFlashlightMod.ID, "item/flashlight_hand");
+    /** true = the hand comes from the model file; false (or the file is missing) = the old hand made of two boxes below. */
+    private static final boolean HAND_FROM_MODEL = true;
 
     // ---------- РУКА: цвет и размеры (можно крутить) ----------
     // Цвет кожи (бежевый как на твоём рисунке). Значения 0..1.
@@ -101,6 +113,8 @@ public class FlashlightClient {
     private static final double SPIN = 0.12;
 
     private static final Vec3 LENS = toRig(0.0, 0.0, LENS_Z);
+    /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
+    private static final Vec3 WRIST = toRig(0.15, 0.05, 0.2);
 
     // ---------- сетка руки ----------
     private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
@@ -334,6 +348,16 @@ public class FlashlightClient {
         ps.translate(swX + bx + wx, swY + by + wy - equip * 0.6f, 0.0);
         ps.mulPose(Vector3f.ZP.rotationDegrees(swX * -35f + bRoll + wRoll));
         ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch + wPitch));
+        // RUNNING only (walking stays as it was): the whole rig also turns about the WRIST, so the HEAD of the flashlight
+        // swings wide from side to side, and the cone of light (drawn below with the same matrix) follows it
+        float headK = runAmt * moveAmt;
+        if (headK > 0.001f) {
+            float sw = (float) Math.sin(phase) * headK;
+            ps.translate(WRIST.x, WRIST.y, WRIST.z);
+            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_HEAD_YAW));
+            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * RUN_HEAD_ROLL));
+            ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
+        }
         ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
 
         if (on) {
@@ -348,12 +372,28 @@ public class FlashlightClient {
         if (buf instanceof MultiBufferSource.BufferSource bs) {
             bs.endBatch();
         }
-        drawMesh(FINGERS, ps.last().pose(), lightFactor);
+        // the hand: from the model (everything, arm and fingers, in the coordinates of the flashlight model), or the old boxes
+        BakedModel handModel = HAND_FROM_MODEL ? handModel(mc) : null;
+        if (handModel != null) {
+            mc.getItemRenderer().render(stack, ItemTransforms.TransformType.NONE, false, ps, buf, light,
+                    OverlayTexture.NO_OVERLAY, handModel);
+            if (buf instanceof MultiBufferSource.BufferSource bs2) {
+                bs2.endBatch();
+            }
+        } else {
+            drawMesh(FINGERS, ps.last().pose(), lightFactor);
+        }
         ps.popPose();
 
-        drawMesh(ARM, ps.last().pose(), lightFactor);
+        if (handModel == null) drawMesh(ARM, ps.last().pose(), lightFactor);
 
         ps.popPose();
+    }
+
+    /** the baked hand model, or null when the file is missing (then the old boxes are used). */
+    private static BakedModel handModel(Minecraft mc) {
+        BakedModel m = mc.getModelManager().getModel(HAND_MODEL);
+        return m == mc.getModelManager().getMissingModel() ? null : m;
     }
 
     private static float pulse(int i, double t) {
