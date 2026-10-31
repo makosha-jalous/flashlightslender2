@@ -224,6 +224,27 @@ public class FlashlightClient {
     private static boolean swInit, lastOn;
     private static long lastNs;
     private static final long START_NS = System.nanoTime();
+    /** true when the motion of this frame was already updated BEFORE the world was drawn (the shader needs it early). */
+    private static boolean preUpdated;
+
+    /** the sideways motion of the hand in this moment: the turn spring + the breathing + the step. */
+    private static float handX() {
+        float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
+        float idle = 1f - moveAmt * 0.6f;
+        float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
+        return swX + bx + wx;
+    }
+
+    /**
+     * Called by FlashlightFocus once per frame BEFORE the world is drawn: moves the hand one step and returns its exact
+     * sideways offset (the same number the hand is drawn with). The shader pack gets it through the marker in the off hand,
+     * so the circle of light moves in step with the hand, frame by frame, without guessing.
+     */
+    public static float frameUpdate(LocalPlayer p, boolean on, float pt) {
+        updateSway(p, pt, on);
+        preUpdated = true;
+        return handX();
+    }
 
     private static void updateSway(LocalPlayer p, float pt, boolean on) {
         long now = System.nanoTime();
@@ -301,7 +322,8 @@ public class FlashlightClient {
                 && pl.getMainHandItem().getItem() instanceof FlashlightItem) return;
 
         boolean on = FlashlightItem.isOn(stack);
-        updateSway(pl, e.getPartialTick(), on);
+        if (preUpdated) preUpdated = false;        // already moved this frame (before the world was drawn)
+        else updateSway(pl, e.getPartialTick(), on);
         long nowH = System.nanoTime();
         if (nowH - lastHeldNs > 200_000_000L) heldTime = 0f;
         heldTime += Math.min(0.05f, (nowH - lastHeldNs) / 1e9f);
