@@ -17,16 +17,12 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.InputEvent;
-import net.minecraftforge.client.event.RenderGuiEvent;
+import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.registries.ForgeRegistries;
-
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Long-range light: hold the LEFT mouse button while a lit flashlight is in the main hand.
@@ -41,40 +37,8 @@ import java.util.Set;
 @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID, value = Dist.CLIENT)
 public class FlashlightFocus {
 
-    /**
-     * THE CHANNEL TO THE SHADER. The pack reads only the id of the off hand item (item.properties), so the marker is one of
-     * 208 plain items (13 families x 16 colours); the shader pack maps them to the ids 9100 .. 9307 (the same order):
-     *   state = focus * 104 + level      focus 0 = normal beam, 1 = the long-range light
-     *   level 0..103 = the sideways offset of the hand, from -SWAY_RANGE to +SWAY_RANGE (the number the hand is drawn with).
-     */
-    private static final String[] COLORS = {"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray",
-            "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"};
-    private static final String[] FAMILIES = {"wool", "carpet", "concrete", "concrete_powder", "glazed_terracotta", "stained_glass",
-            "stained_glass_pane", "bed", "banner", "shulker_box", "dye", "terracotta", "candle"};
-    public static final int LEVELS = 104;
-    public static final float SWAY_RANGE = 0.20f;
-    private static Item[] states;
-    private static Set<Item> stateSet;
-    /** true while our marker stands in the off hand (the real off hand item is kept in "saved"). */
-    private static boolean markerActive;
-
-    private static Item[] states() {
-        if (states == null) {
-            Item[] s = new Item[FAMILIES.length * COLORS.length];
-            Set<Item> set = new HashSet<>();
-            for (int f = 0; f < FAMILIES.length; f++) {
-                for (int c = 0; c < COLORS.length; c++) {
-                    Item it = ForgeRegistries.ITEMS.getValue(new ResourceLocation("minecraft", COLORS[c] + "_" + FAMILIES[f]));
-                    if (it == null || it == Items.AIR) it = Items.BARRIER;     // never happens in 1.19.2
-                    s[f * COLORS.length + c] = it;
-                    set.add(it);
-                }
-            }
-            states = s;
-            stateSet = set;
-        }
-        return states;
-    }
+    private static final Item[] MARKERS = {Items.BARRIER, Items.STRUCTURE_VOID, Items.LIGHT, Items.BEDROCK,
+            Items.COMMAND_BLOCK, Items.CHAIN_COMMAND_BLOCK, Items.REPEATING_COMMAND_BLOCK, Items.JIGSAW};
     private static final float SECONDS_TO_FOCUS = 1.0f;
 
     private static float amount;
@@ -100,16 +64,10 @@ public class FlashlightFocus {
                 SimpleSoundInstance.forUI(SlenderFlashlightMod.FLASHLIGHT_CLICK.get(), 1.0F, 0.7F));
     }
 
-    private static boolean isStateItem(ItemStack s) {
-        if (s.isEmpty()) return false;
-        states();
-        return stateSet.contains(s.getItem());
-    }
-
     private static boolean isMarker(ItemStack s) {
-        if (!markerActive || s.isEmpty()) return false;
-        states();
-        return stateSet.contains(s.getItem());
+        if (s.isEmpty()) return false;
+        for (Item m : MARKERS) if (s.getItem() == m) return true;
+        return false;
     }
 
     private static boolean flashlightInHand(LocalPlayer p) {
@@ -158,7 +116,6 @@ public class FlashlightFocus {
         if (p == null) {
             amount = 0f;
             hasSaved = false;
-            markerActive = false;
             return;
         }
 
@@ -166,26 +123,20 @@ public class FlashlightFocus {
         amount = target;      // the change is instant (one frame), both ways
 
         int stage = amount > 0.5f ? 1 : 0;
-        boolean lit = FlashlightItem.isOn(p.getMainHandItem()) && p.isAlive() && mc.screen == null;   // no marker while a screen (inventory) is open
-        if (!lit) {
+        if (!FlashlightItem.isOn(p.getMainHandItem())) {
+            stage = 0;
             amount = 0f;
         }
-        if (lit) {
-            // the hand moves one step NOW (before the world is drawn): the shader gets the same number the hand is drawn with
-            float x = FlashlightClient.frameUpdate(p, true, e.renderTickTime);
-            int level = Math.round(Mth.clamp((x + SWAY_RANGE) / (2f * SWAY_RANGE), 0f, 1f) * (LEVELS - 1));
-            int state = stage * LEVELS + level;
-            ItemStack cur = p.getOffhandItem();
-            // a real item (the player put one there, or the server gave it back) is kept; our own marker is not
-            if (!markerActive || !isStateItem(cur)) {
-                saved = cur.copy();
+        if (stage > 0) {
+            if (!isMarker(p.getOffhandItem()) && !hasSaved) {
+                saved = p.getOffhandItem().copy();
                 hasSaved = true;
             }
-            markerActive = true;
-            p.getInventory().offhand.set(0, new ItemStack(states()[state]));
-        } else if (markerActive) {
-            p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);
-            markerActive = false;
+            p.getInventory().offhand.set(0, new ItemStack(MARKERS[Math.min(stage, MARKERS.length) - 1]));
+        } else if (hasSaved || isMarker(p.getOffhandItem())) {
+            if (isMarker(p.getOffhandItem())) {
+                p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);
+            }
             hasSaved = false;
             saved = ItemStack.EMPTY;
         }
@@ -198,22 +149,25 @@ public class FlashlightFocus {
         if (e.getHand() == InteractionHand.OFF_HAND && isMarker(e.getItemStack())) e.setCanceled(true);
     }
 
-    /** the marker is never seen in the interface: while the whole GUI is drawn, the off hand holds its REAL item (or nothing). */
-    private static ItemStack hiddenMarker = ItemStack.EMPTY;
-
-    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.HIGHEST)
-    public static void onGuiPre(RenderGuiEvent.Pre e) {
-        LocalPlayer p = Minecraft.getInstance().player;
+    /** Covers the hotbar icon of the marker with an empty offhand slot. */
+    @SubscribeEvent
+    public static void onHotbar(RenderGuiOverlayEvent.Post e) {
+        if (e.getOverlay() != VanillaGuiOverlay.HOTBAR.type()) return;
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
         if (p == null || !isMarker(p.getOffhandItem())) return;
-        hiddenMarker = p.getOffhandItem();
-        p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);
-    }
-
-    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
-    public static void onGuiPost(RenderGuiEvent.Post e) {
-        if (hiddenMarker.isEmpty()) return;
-        LocalPlayer p = Minecraft.getInstance().player;
-        if (p != null) p.getInventory().offhand.set(0, hiddenMarker);
-        hiddenMarker = ItemStack.EMPTY;
+        PoseStack ps = e.getPoseStack();
+        int w = e.getWindow().getGuiScaledWidth();
+        int h = e.getWindow().getGuiScaledHeight();
+        int i = w / 2;
+        RenderSystem.enableBlend();
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        RenderSystem.setShaderTexture(0, new ResourceLocation("textures/gui/widgets.png"));
+        if (p.getMainArm().getOpposite() == HumanoidArm.LEFT) {
+            GuiComponent.blit(ps, i - 91 - 29, h - 23, 0, 24f, 22f, 29, 24, 256, 256);
+        } else {
+            GuiComponent.blit(ps, i + 91, h - 23, 0, 53f, 22f, 29, 24, 256, 256);
+        }
+        RenderSystem.disableBlend();
     }
 }
