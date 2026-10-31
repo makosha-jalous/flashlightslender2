@@ -108,7 +108,7 @@ public class FlashlightClient {
     private static final float RAY_START_RADIUS = 0.095f;
     private static final float RAY_LENGTH = 1.4f;
     private static final float RAY_MID = 0.35f;
-    private static final float RAY_ALPHA = 0.10f;
+    private static final float RAY_ALPHA = 0.06f;      // was 0.10: the cone is 40% more transparent (also in the long-range mode)
     private static final double RAY_PHASE = 1.771;
     private static final double SPIN = 0.12;
 
@@ -334,9 +334,7 @@ public class FlashlightClient {
         PoseStack ps = e.getPoseStack();
         MultiBufferSource buf = e.getMultiBufferSource();
         int light = e.getPackedLight();
-        if (on) {
-            light = LightTexture.pack(Math.max(LightTexture.block(light), 11), Math.max(LightTexture.sky(light), 11));
-        }
+        // the hand and the flashlight are lit by the place where the player stands (sun, shade, a dark room): no forced minimum
         float brightness = Math.max(LightTexture.block(light), LightTexture.sky(light)) / 15f;
         float lightFactor = Mth.clamp(0.55f + 0.45f * brightness, 0.55f, 1f);
 
@@ -423,9 +421,9 @@ public class FlashlightClient {
     }
 
     private static void tri(BufferBuilder bb, Matrix4f m, Vec3 a, float aa, Vec3 b, float ba, Vec3 c, float ca) {
-        bb.vertex(m, (float) a.x, (float) a.y, (float) a.z).color(1f, 0.96f, 0.84f, aa).endVertex();
-        bb.vertex(m, (float) b.x, (float) b.y, (float) b.z).color(1f, 0.96f, 0.84f, ba).endVertex();
-        bb.vertex(m, (float) c.x, (float) c.y, (float) c.z).color(1f, 0.96f, 0.84f, ca).endVertex();
+        bb.vertex(m, (float) a.x, (float) a.y, (float) a.z).color(1f, 1f, 1f, aa).endVertex();
+        bb.vertex(m, (float) b.x, (float) b.y, (float) b.z).color(1f, 1f, 1f, ba).endVertex();
+        bb.vertex(m, (float) c.x, (float) c.y, (float) c.z).color(1f, 1f, 1f, ca).endVertex();
     }
 
     private static void drawRay(BufferBuilder bb, Matrix4f m, Vec3 dir, float alpha) {

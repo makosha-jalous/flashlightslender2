@@ -17,7 +17,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.InputEvent;
-import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.event.TickEvent;
@@ -166,7 +166,7 @@ public class FlashlightFocus {
         amount = target;      // the change is instant (one frame), both ways
 
         int stage = amount > 0.5f ? 1 : 0;
-        boolean lit = FlashlightItem.isOn(p.getMainHandItem()) && p.isAlive();
+        boolean lit = FlashlightItem.isOn(p.getMainHandItem()) && p.isAlive() && mc.screen == null;   // no marker while a screen (inventory) is open
         if (!lit) {
             amount = 0f;
         }
@@ -198,25 +198,20 @@ public class FlashlightFocus {
         if (e.getHand() == InteractionHand.OFF_HAND && isMarker(e.getItemStack())) e.setCanceled(true);
     }
 
-    /** the marker is never seen in the hotbar: for the moment the hotbar is drawn, the off hand slot shows the real item (or nothing). */
+    /** the marker is never seen in the interface: while the whole GUI is drawn, the off hand holds its REAL item (or nothing). */
     private static ItemStack hiddenMarker = ItemStack.EMPTY;
 
     @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.HIGHEST)
-    public static void onHotbarPre(RenderGuiOverlayEvent.Pre e) {
-        if (e.getOverlay() != VanillaGuiOverlay.HOTBAR.type()) return;
+    public static void onGuiPre(RenderGuiEvent.Pre e) {
         LocalPlayer p = Minecraft.getInstance().player;
         if (p == null || !isMarker(p.getOffhandItem())) return;
         hiddenMarker = p.getOffhandItem();
-        p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);   // the real item of the left hand is shown
+        p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);
     }
 
-    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST, receiveCanceled = true)
-    public static void onHotbarPost(RenderGuiOverlayEvent.Post e) {
-        restoreHotbarMarker(e.getOverlay() == VanillaGuiOverlay.HOTBAR.type());
-    }
-
-    private static void restoreHotbarMarker(boolean isHotbar) {
-        if (!isHotbar || hiddenMarker.isEmpty()) return;
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST)
+    public static void onGuiPost(RenderGuiEvent.Post e) {
+        if (hiddenMarker.isEmpty()) return;
         LocalPlayer p = Minecraft.getInstance().player;
         if (p != null) p.getInventory().offhand.set(0, hiddenMarker);
         hiddenMarker = ItemStack.EMPTY;
