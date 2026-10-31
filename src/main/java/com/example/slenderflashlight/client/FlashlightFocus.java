@@ -100,6 +100,12 @@ public class FlashlightFocus {
                 SimpleSoundInstance.forUI(SlenderFlashlightMod.FLASHLIGHT_CLICK.get(), 1.0F, 0.7F));
     }
 
+    private static boolean isStateItem(ItemStack s) {
+        if (s.isEmpty()) return false;
+        states();
+        return stateSet.contains(s.getItem());
+    }
+
     private static boolean isMarker(ItemStack s) {
         if (!markerActive || s.isEmpty()) return false;
         states();
@@ -169,11 +175,13 @@ public class FlashlightFocus {
             float x = FlashlightClient.frameUpdate(p, true, e.renderTickTime);
             int level = Math.round(Mth.clamp((x + SWAY_RANGE) / (2f * SWAY_RANGE), 0f, 1f) * (LEVELS - 1));
             int state = stage * LEVELS + level;
-            if (!markerActive) {
-                saved = p.getOffhandItem().copy();
+            ItemStack cur = p.getOffhandItem();
+            // a real item (the player put one there, or the server gave it back) is kept; our own marker is not
+            if (!markerActive || !isStateItem(cur)) {
+                saved = cur.copy();
                 hasSaved = true;
-                markerActive = true;
             }
+            markerActive = true;
             p.getInventory().offhand.set(0, new ItemStack(states()[state]));
         } else if (markerActive) {
             p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);
@@ -190,25 +198,27 @@ public class FlashlightFocus {
         if (e.getHand() == InteractionHand.OFF_HAND && isMarker(e.getItemStack())) e.setCanceled(true);
     }
 
-    /** Covers the hotbar icon of the marker with an empty offhand slot. */
-    @SubscribeEvent
-    public static void onHotbar(RenderGuiOverlayEvent.Post e) {
+    /** the marker is never seen in the hotbar: for the moment the hotbar is drawn, the off hand slot shows the real item (or nothing). */
+    private static ItemStack hiddenMarker = ItemStack.EMPTY;
+
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.HIGHEST)
+    public static void onHotbarPre(RenderGuiOverlayEvent.Pre e) {
         if (e.getOverlay() != VanillaGuiOverlay.HOTBAR.type()) return;
-        Minecraft mc = Minecraft.getInstance();
-        LocalPlayer p = mc.player;
+        LocalPlayer p = Minecraft.getInstance().player;
         if (p == null || !isMarker(p.getOffhandItem())) return;
-        PoseStack ps = e.getPoseStack();
-        int w = e.getWindow().getGuiScaledWidth();
-        int h = e.getWindow().getGuiScaledHeight();
-        int i = w / 2;
-        RenderSystem.enableBlend();
-        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
-        RenderSystem.setShaderTexture(0, new ResourceLocation("textures/gui/widgets.png"));
-        if (p.getMainArm().getOpposite() == HumanoidArm.LEFT) {
-            GuiComponent.blit(ps, i - 91 - 29, h - 23, 0, 24f, 22f, 29, 24, 256, 256);
-        } else {
-            GuiComponent.blit(ps, i + 91, h - 23, 0, 53f, 22f, 29, 24, 256, 256);
-        }
-        RenderSystem.disableBlend();
+        hiddenMarker = p.getOffhandItem();
+        p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);   // the real item of the left hand is shown
+    }
+
+    @SubscribeEvent(priority = net.minecraftforge.eventbus.api.EventPriority.LOWEST, receiveCanceled = true)
+    public static void onHotbarPost(RenderGuiOverlayEvent.Post e) {
+        restoreHotbarMarker(e.getOverlay() == VanillaGuiOverlay.HOTBAR.type());
+    }
+
+    private static void restoreHotbarMarker(boolean isHotbar) {
+        if (!isHotbar || hiddenMarker.isEmpty()) return;
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p != null) p.getInventory().offhand.set(0, hiddenMarker);
+        hiddenMarker = ItemStack.EMPTY;
     }
 }
