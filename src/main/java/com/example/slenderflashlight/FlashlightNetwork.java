@@ -34,8 +34,13 @@ public final class FlashlightNetwork {
 
     @SubscribeEvent
     public static void onCommonSetup(FMLCommonSetupEvent event) {
-        event.enqueueWork(() -> CHANNEL.registerMessage(0, StateMessage.class,
-                StateMessage::encode, StateMessage::decode, StateMessage::handle));
+        event.enqueueWork(FlashlightNetwork::register);
+    }
+
+    /** a plain method (not a short lambda): registerMessage returns a type that is not public. */
+    private static void register() {
+        CHANNEL.registerMessage(0, StateMessage.class,
+                StateMessage::encode, StateMessage::decode, StateMessage::handle);
     }
 
     /** client -> server: the state of the flashlight. */
