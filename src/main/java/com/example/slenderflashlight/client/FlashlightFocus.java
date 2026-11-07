@@ -33,6 +33,11 @@ import net.minecraftforge.fml.common.Mod;
  * The shader pack cannot read the mod, so the focus is passed to it through the OFFHAND item on the CLIENT only
  * (never sent to the server): a vanilla marker item whose id the pack maps to 9001..9004 (the stage of the focus).
  * The marker is not drawn in the hand and its hotbar icon is covered; the real offhand item comes back at the end.
+ *
+ * EXACT CHANNEL: while the flashlight is lit, the marker is one of 208 plain items (the pack maps them to ids 9100..9307):
+ * index = focus * 104 + level, where level 0..103 is the sideways offset of the hand (-0.20 .. +0.20), the very number the hand
+ * is drawn with (FlashlightClient.frameUpdate). So the circle of light follows the head of the flashlight frame by frame.
+ * The order of EXACT must be the same as item.9100 .. item.9307 in the pack's item.properties.
  */
 @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID, value = Dist.CLIENT)
 public class FlashlightFocus {
@@ -40,6 +45,82 @@ public class FlashlightFocus {
     private static final Item[] MARKERS = {Items.BARRIER, Items.STRUCTURE_VOID, Items.LIGHT, Items.BEDROCK,
             Items.COMMAND_BLOCK, Items.CHAIN_COMMAND_BLOCK, Items.REPEATING_COMMAND_BLOCK, Items.JIGSAW};
     private static final float SECONDS_TO_FOCUS = 1.0f;
+
+    /** the 208 items of the exact channel, in the order of item.9100 .. item.9307 of the shader pack. */
+    private static final String[] EXACT_NAMES = {
+            "white_wool", "orange_wool", "magenta_wool", "light_blue_wool",
+            "yellow_wool", "lime_wool", "pink_wool", "gray_wool",
+            "light_gray_wool", "cyan_wool", "purple_wool", "blue_wool",
+            "brown_wool", "green_wool", "red_wool", "black_wool",
+            "white_carpet", "orange_carpet", "magenta_carpet", "light_blue_carpet",
+            "yellow_carpet", "lime_carpet", "pink_carpet", "gray_carpet",
+            "light_gray_carpet", "cyan_carpet", "purple_carpet", "blue_carpet",
+            "brown_carpet", "green_carpet", "red_carpet", "black_carpet",
+            "white_concrete", "orange_concrete", "magenta_concrete", "light_blue_concrete",
+            "yellow_concrete", "lime_concrete", "pink_concrete", "gray_concrete",
+            "light_gray_concrete", "cyan_concrete", "purple_concrete", "blue_concrete",
+            "brown_concrete", "green_concrete", "red_concrete", "black_concrete",
+            "white_concrete_powder", "orange_concrete_powder", "magenta_concrete_powder", "light_blue_concrete_powder",
+            "yellow_concrete_powder", "lime_concrete_powder", "pink_concrete_powder", "gray_concrete_powder",
+            "light_gray_concrete_powder", "cyan_concrete_powder", "purple_concrete_powder", "blue_concrete_powder",
+            "brown_concrete_powder", "green_concrete_powder", "red_concrete_powder", "black_concrete_powder",
+            "white_glazed_terracotta", "orange_glazed_terracotta", "magenta_glazed_terracotta", "light_blue_glazed_terracotta",
+            "yellow_glazed_terracotta", "lime_glazed_terracotta", "pink_glazed_terracotta", "gray_glazed_terracotta",
+            "light_gray_glazed_terracotta", "cyan_glazed_terracotta", "purple_glazed_terracotta", "blue_glazed_terracotta",
+            "brown_glazed_terracotta", "green_glazed_terracotta", "red_glazed_terracotta", "black_glazed_terracotta",
+            "white_stained_glass", "orange_stained_glass", "magenta_stained_glass", "light_blue_stained_glass",
+            "yellow_stained_glass", "lime_stained_glass", "pink_stained_glass", "gray_stained_glass",
+            "light_gray_stained_glass", "cyan_stained_glass", "purple_stained_glass", "blue_stained_glass",
+            "brown_stained_glass", "green_stained_glass", "red_stained_glass", "black_stained_glass",
+            "white_stained_glass_pane", "orange_stained_glass_pane", "magenta_stained_glass_pane", "light_blue_stained_glass_pane",
+            "yellow_stained_glass_pane", "lime_stained_glass_pane", "pink_stained_glass_pane", "gray_stained_glass_pane",
+            "light_gray_stained_glass_pane", "cyan_stained_glass_pane", "purple_stained_glass_pane", "blue_stained_glass_pane",
+            "brown_stained_glass_pane", "green_stained_glass_pane", "red_stained_glass_pane", "black_stained_glass_pane",
+            "white_bed", "orange_bed", "magenta_bed", "light_blue_bed",
+            "yellow_bed", "lime_bed", "pink_bed", "gray_bed",
+            "light_gray_bed", "cyan_bed", "purple_bed", "blue_bed",
+            "brown_bed", "green_bed", "red_bed", "black_bed",
+            "white_banner", "orange_banner", "magenta_banner", "light_blue_banner",
+            "yellow_banner", "lime_banner", "pink_banner", "gray_banner",
+            "light_gray_banner", "cyan_banner", "purple_banner", "blue_banner",
+            "brown_banner", "green_banner", "red_banner", "black_banner",
+            "white_shulker_box", "orange_shulker_box", "magenta_shulker_box", "light_blue_shulker_box",
+            "yellow_shulker_box", "lime_shulker_box", "pink_shulker_box", "gray_shulker_box",
+            "light_gray_shulker_box", "cyan_shulker_box", "purple_shulker_box", "blue_shulker_box",
+            "brown_shulker_box", "green_shulker_box", "red_shulker_box", "black_shulker_box",
+            "white_dye", "orange_dye", "magenta_dye", "light_blue_dye",
+            "yellow_dye", "lime_dye", "pink_dye", "gray_dye",
+            "light_gray_dye", "cyan_dye", "purple_dye", "blue_dye",
+            "brown_dye", "green_dye", "red_dye", "black_dye",
+            "white_terracotta", "orange_terracotta", "magenta_terracotta", "light_blue_terracotta",
+            "yellow_terracotta", "lime_terracotta", "pink_terracotta", "gray_terracotta",
+            "light_gray_terracotta", "cyan_terracotta", "purple_terracotta", "blue_terracotta",
+            "brown_terracotta", "green_terracotta", "red_terracotta", "black_terracotta",
+            "white_candle", "orange_candle", "magenta_candle", "light_blue_candle",
+            "yellow_candle", "lime_candle", "pink_candle", "gray_candle",
+            "light_gray_candle", "cyan_candle", "purple_candle", "blue_candle",
+            "brown_candle", "green_candle", "red_candle", "black_candle"
+    };
+    private static final String TAG = "slf_marker";
+    private static final float EXACT_RANGE = 0.20f;     // the same as in flashlight.glsl (GetFlashExact)
+    private static final int EXACT_LEVELS = 104;
+    private static Item[] exact;
+    private static java.util.Set<Item> markerSet;
+
+    private static void initExact() {
+        if (exact != null) return;
+        Item[] arr = new Item[EXACT_NAMES.length];
+        java.util.Set<Item> set = new java.util.HashSet<>();
+        for (Item m : MARKERS) set.add(m);
+        for (int i = 0; i < arr.length; i++) {
+            Item it = net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(new ResourceLocation("minecraft", EXACT_NAMES[i]));
+            if (it == null || it == Items.AIR) it = Items.BARRIER;      // never happens in 1.19.2; keeps the code safe
+            arr[i] = it;
+            set.add(it);
+        }
+        markerSet = set;
+        exact = arr;
+    }
 
     private static float amount;
     private static boolean wasHeld;
@@ -66,8 +147,8 @@ public class FlashlightFocus {
 
     private static boolean isMarker(ItemStack s) {
         if (s.isEmpty()) return false;
-        for (Item m : MARKERS) if (s.getItem() == m) return true;
-        return false;
+        // our marker carries a tag, so a real wool block, carpet and so on in the off hand is never taken for it (and never lost)
+        return s.hasTag() && s.getTag().getBoolean(TAG) && markerSet != null && markerSet.contains(s.getItem());
     }
 
     private static boolean flashlightInHand(LocalPlayer p) {
@@ -123,16 +204,28 @@ public class FlashlightFocus {
         amount = target;      // the change is instant (one frame), both ways
 
         int stage = amount > 0.5f ? 1 : 0;
-        if (!FlashlightItem.isOn(p.getMainHandItem())) {
+        boolean lit = FlashlightItem.isOn(p.getMainHandItem());
+        if (!lit) {
             stage = 0;
             amount = 0f;
         }
-        if (stage > 0) {
+        // the exact channel: the marker is there the whole time the flashlight is lit (focus or not)
+        Item marker = null;
+        if (lit && flashlightInHand(p)) {
+            initExact();
+            float hx = FlashlightClient.frameUpdate(p, true, e.renderTickTime);
+            float t = Mth.clamp((hx + EXACT_RANGE) / (2f * EXACT_RANGE), 0f, 1f);
+            int level = Math.round(t * (EXACT_LEVELS - 1));
+            marker = exact[(stage > 0 ? EXACT_LEVELS : 0) + level];
+        }
+        if (marker != null) {
             if (!isMarker(p.getOffhandItem()) && !hasSaved) {
                 saved = p.getOffhandItem().copy();
                 hasSaved = true;
             }
-            p.getInventory().offhand.set(0, new ItemStack(MARKERS[Math.min(stage, MARKERS.length) - 1]));
+            ItemStack ms = new ItemStack(marker);
+            ms.getOrCreateTag().putBoolean(TAG, true);
+            p.getInventory().offhand.set(0, ms);
         } else if (hasSaved || isMarker(p.getOffhandItem())) {
             if (isMarker(p.getOffhandItem())) {
                 p.getInventory().offhand.set(0, hasSaved ? saved : ItemStack.EMPTY);
