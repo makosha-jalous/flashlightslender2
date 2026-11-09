@@ -309,6 +309,84 @@ public class FlashlightClient {
         ps.translate(-tx, -ty, 0.0);
     }
 
+    /**
+     * The whole motion of the hand (turn spring, breathing, step, run swing, equip, slide) applied to a pose stack. One place for
+     * the drawing of the hand AND for the position of the head that the shader gets (rest = true: every motion is zero).
+     */
+    private static void applyChain(PoseStack ps, boolean rest, float equip, float slide, LocalPlayer pl, float pt, boolean cancelBob) {
+        float mSwX = rest ? 0f : swX, mSwY = rest ? 0f : swY, mKick = rest ? 0f : kick;
+        float mMove = rest ? 0f : moveAmt, mRun = rest ? 0f : runAmt;
+        float mTime = rest ? 0f : time;
+        float mPhase = rest ? 0f : phase;
+        // Ход: дуга выпуклая ВВЕРХ (∩). x = sin(фаза), y = cos(2*фаза) = 1 - 2x²
+        float wx = (float) Math.sin(mPhase) * Mth.lerp(mRun, WALK_AMP_X, RUN_AMP_X) * mMove;
+        // walking and running: an UPPER arc (the middle is the highest point), smaller when walking
+        float waveY = (float) Math.cos(2 * mPhase) * WALK_AMP_Y;
+        float arcY = (float) Math.cos(2 * mPhase) * RUN_AMP_Y;
+        float wy = Mth.lerp(mRun, waveY, arcY) * mMove;
+        float wRoll = (float) Math.sin(mPhase) * Mth.lerp(mRun, 2.0f, 3.4f) * mMove;
+        float wPitch = Mth.lerp(mRun, waveY * 20f, arcY * 20f) * mMove;
+
+        // Покой: мягкое волнообразное «дыхание» (слабее при ходьбе)
+        float idle = 1f - mMove * 0.6f;
+        float bx = ((float) Math.sin(mTime * 0.9f) * IDLE_X + (float) Math.sin(mTime * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
+        float by = ((float) Math.sin(mTime * 1.25f) * IDLE_Y + (float) Math.sin(mTime * 0.55f) * IDLE_Y * 0.45f) * idle;
+        float bRoll = (float) Math.sin(mTime * 0.8f) * 1.3f * idle;
+        float bPitch = (float) Math.sin(mTime * 1.25f + 0.8f) * 1.0f * idle;
+
+        if (cancelBob && Minecraft.getInstance().options.bobView().get()) {
+            cancelVanillaBob(ps, pl, pt);
+        }
+        // long-range light: the hand and the flashlight stand still
+        // the hand keeps its normal motion in the long-range mode too
+        ps.translate(mSwX + bx + wx, mSwY + by + wy - equip * 0.6f, 0.0);
+        ps.mulPose(Vector3f.ZP.rotationDegrees(mSwX * -35f + bRoll + wRoll));
+        ps.mulPose(Vector3f.XP.rotationDegrees(mKick * 4f + bPitch + wPitch));
+        // RUNNING only (walking stays as it was): the whole rig also turns about the WRIST, so the HEAD of the flashlight
+        // swings wide from side to side, and the cone of light (drawn below with the same matrix) follows it
+        float headK = mRun * mMove;
+        if (headK > 0.001f) {
+            float sw = (float) Math.sin(mPhase) * headK;
+            ps.translate(WRIST.x, WRIST.y, WRIST.z);
+            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_HEAD_YAW));
+            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * RUN_HEAD_ROLL));
+            ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
+        }
+        ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
+
+    }
+
+    /**
+     * What the shader needs: how far the head of the flashlight and its beam have moved from the resting hand, as a shift of the
+     * screen position (NDC of the hand projection, 70 degrees). {origin dx, origin dy, aim dx, aim dy}. Called early in the frame.
+     */
+    static float[] track(LocalPlayer pl, float pt) {
+        Minecraft mc = Minecraft.getInstance();
+        float ease0 = appear * appear * (3f - 2f * appear);
+        PoseStack cur = new PoseStack();
+        applyChain(cur, false, 0f, 1f - ease0, pl, pt, false);
+        PoseStack rst = new PoseStack();
+        applyChain(rst, true, 0f, 0f, pl, pt, false);
+        float tanH = (float) Math.tan(Math.toRadians(35.0));
+        float aspect = (float) mc.getWindow().getWidth() / Math.max(1f, (float) mc.getWindow().getHeight());
+        float[] c = headNdc(cur.last().pose(), tanH, aspect);
+        float[] r = headNdc(rst.last().pose(), tanH, aspect);
+        return new float[]{c[0] - r[0], c[1] - r[1], c[2], c[3]};
+    }
+
+    /** {lens x, lens y (NDC), beam slope x, y (NDC at infinity)} */
+    private static float[] headNdc(Matrix4f m, float tanH, float aspect) {
+        com.mojang.math.Vector4f o = new com.mojang.math.Vector4f((float) LENS.x, (float) LENS.y, (float) LENS.z, 1f);
+        com.mojang.math.Vector4f d = new com.mojang.math.Vector4f(0f, 0f, -1f, 0f);
+        o.transform(m);
+        d.transform(m);
+        float od = Math.max(0.05f, -o.z());
+        float dd = Math.max(0.05f, -d.z());
+        return new float[]{
+                o.x() / od / (tanH * aspect), o.y() / od / tanH,
+                d.x() / dd / (tanH * aspect), d.y() / dd / tanH};
+    }
+
     @SubscribeEvent
     public static void onRenderHand(RenderHandEvent e) {
         ItemStack stack = e.getItemStack();
@@ -343,42 +421,8 @@ public class FlashlightClient {
         float ease = appear * appear * (3f - 2f * appear);
         float slide = 1f - ease;
 
-        // Ход: дуга выпуклая ВВЕРХ (∩). x = sin(фаза), y = cos(2*фаза) = 1 - 2x²
-        float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
-        // walking and running: an UPPER arc (the middle is the highest point), smaller when walking
-        float waveY = (float) Math.cos(2 * phase) * WALK_AMP_Y;
-        float arcY = (float) Math.cos(2 * phase) * RUN_AMP_Y;
-        float wy = Mth.lerp(runAmt, waveY, arcY) * moveAmt;
-        float wRoll = (float) Math.sin(phase) * Mth.lerp(runAmt, 2.0f, 3.4f) * moveAmt;
-        float wPitch = Mth.lerp(runAmt, waveY * 20f, arcY * 20f) * moveAmt;
-
-        // Покой: мягкое волнообразное «дыхание» (слабее при ходьбе)
-        float idle = 1f - moveAmt * 0.6f;
-        float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
-        float by = ((float) Math.sin(time * 1.25f) * IDLE_Y + (float) Math.sin(time * 0.55f) * IDLE_Y * 0.45f) * idle;
-        float bRoll = (float) Math.sin(time * 0.8f) * 1.3f * idle;
-        float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
-
         ps.pushPose();
-        if (mc.options.bobView().get()) {
-            cancelVanillaBob(ps, pl, e.getPartialTick());
-        }
-        // long-range light: the hand and the flashlight stand still
-        // the hand keeps its normal motion in the long-range mode too
-        ps.translate(swX + bx + wx, swY + by + wy - equip * 0.6f, 0.0);
-        ps.mulPose(Vector3f.ZP.rotationDegrees(swX * -35f + bRoll + wRoll));
-        ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch + wPitch));
-        // RUNNING only (walking stays as it was): the whole rig also turns about the WRIST, so the HEAD of the flashlight
-        // swings wide from side to side, and the cone of light (drawn below with the same matrix) follows it
-        float headK = runAmt * moveAmt;
-        if (headK > 0.001f) {
-            float sw = (float) Math.sin(phase) * headK;
-            ps.translate(WRIST.x, WRIST.y, WRIST.z);
-            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_HEAD_YAW));
-            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * RUN_HEAD_ROLL));
-            ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
-        }
-        ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
+        applyChain(ps, false, equip, slide, pl, e.getPartialTick(), true);
 
         if (on) {
             drawRays(ps.last().pose(), ease);
