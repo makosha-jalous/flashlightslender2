@@ -394,6 +394,7 @@ public class FlashlightClient {
         }
         // the hand: from the model (everything, arm and fingers, in the coordinates of the flashlight model), or the old boxes
         BakedModel handModel = HAND_FROM_MODEL ? handModel(mc) : null;
+        captureMask(mc, stack, handModel, ps);
         if (handModel != null) {
             mc.getItemRenderer().render(stack, ItemTransforms.TransformType.NONE, false, ps, buf, light,
                     OverlayTexture.NO_OVERLAY, handModel);
@@ -411,6 +412,60 @@ public class FlashlightClient {
     }
 
     /** the baked hand model, or null when the file is missing (then the old boxes are used). */
+    // ---------------------------------------------------------------------------------
+    //  Where the hand is on the screen (other mods use it to draw something BEHIND the hand, e.g. the glow of the pages)
+    // ---------------------------------------------------------------------------------
+    private static float[] mask = new float[0];
+    private static long maskNs;
+
+    /** every quad of the flashlight and of the hand, projected to the screen: x0,y0,x1,y1,x2,y2,x3,y3 in NDC (-1..1), per quad. Null when the hand was not drawn just now. */
+    public static float[] handMask() {
+        if (System.nanoTime() - maskNs > 150_000_000L || mask.length == 0) return null;
+        return mask;
+    }
+
+    private static void captureMask(Minecraft mc, ItemStack stack, BakedModel hand, PoseStack ps) {
+        try {
+            Matrix4f proj = com.mojang.blaze3d.systems.RenderSystem.getProjectionMatrix();
+            float[] out = new float[8 * 600];
+            int n = 0;
+            BakedModel[] models = {mc.getItemRenderer().getModel(stack, mc.level, mc.player, 0), hand};
+            net.minecraft.util.RandomSource rnd = net.minecraft.util.RandomSource.create(42L);
+            for (BakedModel bm : models) {
+                if (bm == null) continue;
+                PoseStack t = new PoseStack();
+                t.last().pose().multiply(ps.last().pose());
+                bm.getTransforms().getTransform(ItemTransforms.TransformType.NONE).apply(false, t);
+                t.translate(-0.5, -0.5, -0.5);
+                Matrix4f mv = t.last().pose();
+                java.util.List<net.minecraft.client.renderer.block.model.BakedQuad> quads = new java.util.ArrayList<>(bm.getQuads(null, null, rnd));
+                for (net.minecraft.core.Direction d : net.minecraft.core.Direction.values()) quads.addAll(bm.getQuads(null, d, rnd));
+                for (net.minecraft.client.renderer.block.model.BakedQuad q : quads) {
+                    if (n + 8 > out.length) break;
+                    int[] v = q.getVertices();
+                    float[] tmp = new float[8];
+                    boolean ok = true;
+                    for (int i = 0; i < 4 && ok; i++) {
+                        com.mojang.math.Vector4f p = new com.mojang.math.Vector4f(
+                                Float.intBitsToFloat(v[i * 8]), Float.intBitsToFloat(v[i * 8 + 1]), Float.intBitsToFloat(v[i * 8 + 2]), 1f);
+                        p.transform(mv);
+                        p.transform(proj);
+                        if (p.w() < 0.05f) { ok = false; break; }
+                        tmp[i * 2] = p.x() / p.w();
+                        tmp[i * 2 + 1] = p.y() / p.w();
+                    }
+                    if (!ok) continue;
+                    System.arraycopy(tmp, 0, out, n, 8);
+                    n += 8;
+                }
+            }
+            mask = java.util.Arrays.copyOf(out, n);
+            maskNs = System.nanoTime();
+        } catch (Throwable ignored) {
+            mask = new float[0];
+        }
+    }
+
     private static BakedModel handModel(Minecraft mc) {
         BakedModel m = mc.getModelManager().getModel(HAND_MODEL);
         return m == mc.getModelManager().getMissingModel() ? null : m;
