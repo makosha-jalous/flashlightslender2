@@ -55,7 +55,7 @@ public class FlashlightClient {
     /** the same swing of the head of the flashlight when WALKING: as much smaller as the old walking arc was smaller than the running one (0.036 / 0.070). */
     private static final float WALK_HEAD_YAW = RUN_HEAD_YAW * 0.036f / 0.070f;
     private static final float WALK_HEAD_ROLL = RUN_HEAD_ROLL * 0.036f / 0.070f;
-    /** the old arc of the hand (kept as it was): sideways and the height of the upper arc, walking / running. */
+    /** the old swing of the hand (kept as it was): sideways and the height of the arc (now turned over), walking / running. */
     private static final float WALK_AMP_X = 0.036f;
     private static final float RUN_AMP_X = 0.070f;
     private static final float WALK_AMP_Y = 0.020f;
@@ -319,9 +319,9 @@ public class FlashlightClient {
         float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
 
         // the old arc of the hand, as it was (only the movement: no roll, no tilt, the springs below are not touched):
-        // x = sin(phase), y = cos(2 * phase) = the middle is the highest point; smaller when walking
+        // x = sin(phase), y = -cos(2 * phase) = the TURNED-OVER arc: the middle is the lowest point, the sides are the highest; smaller when walking
         float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
-        float wy = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
+        float wy = (float) -Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
 
         // the position spring: x right, y up, z FORWARD in the original = -z here
         ps.translate(bx + hp[0] + wx, by + hp[1] + wy - equip * 0.6f, -hp[2]);
