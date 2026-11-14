@@ -52,6 +52,14 @@ public class FlashlightClient {
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     private static final float RUN_HEAD_YAW = 13f;
     private static final float RUN_HEAD_ROLL = 6f;
+    /** the same swing of the head of the flashlight when WALKING: as much smaller as the old walking arc was smaller than the running one (0.036 / 0.070). */
+    private static final float WALK_HEAD_YAW = RUN_HEAD_YAW * 0.036f / 0.070f;
+    private static final float WALK_HEAD_ROLL = RUN_HEAD_ROLL * 0.036f / 0.070f;
+    /** the old arc of the hand (kept as it was): sideways and the height of the upper arc, walking / running. */
+    private static final float WALK_AMP_X = 0.036f;
+    private static final float RUN_AMP_X = 0.070f;
+    private static final float WALK_AMP_Y = 0.020f;
+    private static final float RUN_AMP_Y = 0.040f;
     private static final float LENS_Z = -0.475f;
 
     // ---------- РУКА ИЗ МОДЕЛИ (Blockbench) ----------
@@ -310,8 +318,13 @@ public class FlashlightClient {
         float bRoll = (float) Math.sin(time * 0.8f) * 1.3f * idle;
         float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
 
+        // the old arc of the hand, as it was (only the movement: no roll, no tilt, the springs below are not touched):
+        // x = sin(phase), y = cos(2 * phase) = the middle is the highest point; smaller when walking
+        float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
+        float wy = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
+
         // the position spring: x right, y up, z FORWARD in the original = -z here
-        ps.translate(bx + hp[0], by + hp[1] - equip * 0.6f, -hp[2]);
+        ps.translate(bx + hp[0] + wx, by + hp[1] + wy - equip * 0.6f, -hp[2]);
         ps.mulPose(Vector3f.ZP.rotationDegrees(bRoll));
         ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch));
         // the rotation spring about the wrist. Original's signs: Y + = turns to the right, X + = the top goes left, Z + = the front goes up
@@ -319,12 +332,11 @@ public class FlashlightClient {
         ps.mulPose(Vector3f.YP.rotationDegrees(-hp[4]));
         ps.mulPose(Vector3f.ZP.rotationDegrees(hp[3]));
         ps.mulPose(Vector3f.XP.rotationDegrees(hp[5]));
-        // RUNNING only: the head of the flashlight swings wide from side to side (the cone of light follows it)
-        float headK = runAmt * moveAmt;
-        if (headK > 0.001f) {
-            float sw = (float) Math.sin(phase) * headK;
-            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_HEAD_YAW));
-            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * RUN_HEAD_ROLL));
+        // WALKING and RUNNING: the head of the flashlight swings from side to side (smaller when walking); the cone of light follows it
+        if (moveAmt > 0.001f) {
+            float sw = (float) Math.sin(phase) * moveAmt;
+            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * Mth.lerp(runAmt, WALK_HEAD_YAW, RUN_HEAD_YAW)));
+            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * Mth.lerp(runAmt, WALK_HEAD_ROLL, RUN_HEAD_ROLL)));
         }
         ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
     }
