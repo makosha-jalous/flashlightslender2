@@ -79,30 +79,9 @@ public class FlashlightClient {
     // Walking (with the camera: Slowness II): the hand goes along a wave - side to side, with a snake-like up/down wave
     // (1.5 waves from one end to the other). Running (Slowness I): a wide swing from side to side along an UPPER arc.
     // The speed of the steps follows the REAL speed of the player (so Slowness 1 / 2 changes it by itself).
-    private static final float WALK_AMP_X = 0.036f;
-    private static final float RUN_AMP_X = 0.070f;
-    private static final float WALK_AMP_Y = 0.020f;
-    private static final float RUN_AMP_Y = 0.040f;
     /** One full swing (right and back) = two steps. Walking: a step every 0.8 s (a swing 1.6 s); running: a step every 0.6 s (a swing 1.2 s). */
     private static final float WALK_RATE = 6.2831853f / 1.6f;
     private static final float RUN_RATE = 6.2831853f / 1.2f;
-
-    // ---------- БЕГ из файла Run.txt оригинала (UFPS): качание и инерция руки. Работает ТОЛЬКО при беге, плавно нарастает и затухает ----------
-    // BobAmplitude 100 / 20 / -20 : боковое качание (оно у нас уже есть: RUN_AMP_X), вертикальное и «вперёд-назад» = 0.2 от бокового.
-    // BobRate 0.55 / 0.6 / 1.1    : боковое = шаг бега (у нас уже так), вертикальное чуть быстрее (x1.09, поэтому не повторяется точно),
-    //                               вперёд-назад ровно вдвое быстрее бокового.
-    private static final float RUN_BOB_Y = 0.2f * RUN_AMP_X;
-    private static final float RUN_BOB_Z = -0.2f * RUN_AMP_X;
-    private static final float RUN_BOB_Y_RATE = 0.6f / 0.55f;
-    /** Инерция (повороты руки): LookSway 1.2 1 0, StrafeSway 0.3 1 1.5, FallSway 1 -0.5 -3 (x = наклон вперёд-назад, y = поворот влево-вправо, z = крен). */
-    private static final float[] LOOK_SWAY = {1.2f, 1.0f, 0.0f};
-    private static final float[] STRAFE_SWAY = {0.3f, 1.0f, 1.5f};
-    private static final float[] FALL_SWAY = {1.0f, -0.5f, -3.0f};
-    /** сила: градусов на градус поворота мыши за кадр / на блок в секунду бокового хода / на блок в секунду падения. */
-    private static final float LOOK_SWAY_IMPULSE = 2.5f;
-    private static final float STRAFE_SWAY_DEG = 0.4f;
-    private static final float FALL_SWAY_DEG = 0.15f;
-    private static final float MAX_SWAY_DEG = 6f;
 
     // ---------- плавное «дыхание» в покое ----------
     private static final float IDLE_X = 0.013f;
@@ -112,11 +91,6 @@ public class FlashlightClient {
     private static final float SLIDE_Y = -0.35f;
     private static final float SLIDE_Z = 0.10f;
     private static final float SLIDE_SPEED = 6.5f;
-
-    private static final float SPRING_K = 70f;
-    private static final float SPRING_C = 11f;
-    private static final float IMPULSE = 0.045f;
-    private static final float MAX_OFFSET = 0.10f;
 
     private static final int RAYS = 5;
     private static final int RING = 20;
@@ -236,28 +210,26 @@ public class FlashlightClient {
     //  Анимация
     // =====================================================================
 
-    private static float swX, swY, swVX, swVY, kick, lastYaw, lastPitch, time, appear;
+    private static float kick, lastYaw, lastPitch, time, appear;
     private static float moveAmt, runAmt, phase;
     private static boolean swInit, lastOn;
-    /** run extras: own phase of the vertical bob, sprint share (also in the air), the turning of the hand (degrees) and its speed. */
-    private static float phaseY, sprintAmt;
-    private static final float[] rot = new float[3], rotV = new float[3];
+    /** the hand springs (HandMotion): the pose of this frame {right, up, forward, roll, turn, tilt}. */
+    private static final float[] hp = new float[6];
     private static long lastNs;
     private static final long START_NS = System.nanoTime();
     /** true when the motion of this frame was already updated BEFORE the world was drawn (the shader needs it early). */
     private static boolean preUpdated;
 
-    /** the sideways motion of the hand in this moment: the turn spring + the breathing + the step. */
-    private static float handX() {
-        float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
-        float idle = 1f - moveAmt * 0.6f;
-        float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
-        return swX + bx + wx;
-    }
-
-    /** what the shader gets: the old sideways offset + the sideways move of the lens caused by the run extras (zero when walking). */
+    /**
+     * What the shader gets: how far (sideways, in hand units) the LENS is moved from its rest place by the whole motion of the hand
+     * (the springs: walk, run, look, strafe, fall; the breathing; the swing of the head). The circle of light follows the lens.
+     */
     private static float shaderX() {
-        return handX() + extrasLensX();
+        PoseStack t = new PoseStack();
+        applyMotion(t, 0f);
+        com.mojang.math.Vector4f v = new com.mojang.math.Vector4f((float) LENS.x, (float) LENS.y, (float) LENS.z, 1f);
+        v.transform(t.last().pose());
+        return v.x() - (float) LENS.x;
     }
 
     /**
@@ -274,18 +246,13 @@ public class FlashlightClient {
     private static void updateSway(LocalPlayer p, float pt, boolean on) {
         long now = System.nanoTime();
         float dt = swInit ? Math.min(0.05f, (now - lastNs) / 1e9f) : 0.016f;
+        boolean longPause = swInit && (now - lastNs) > 300_000_000L;
         lastNs = now;
         float yaw = p.getViewYRot(pt), pitch = p.getViewXRot(pt);
         if (!swInit) { lastYaw = yaw; lastPitch = pitch; lastOn = on; swInit = true; }
         float dy = Mth.wrapDegrees(yaw - lastYaw), dp = pitch - lastPitch;
         lastYaw = yaw; lastPitch = pitch;
-
-        swVX += -dy * IMPULSE;
-        swVY += dp * IMPULSE;
-        swVX += (-SPRING_K * swX - SPRING_C * swVX) * dt;
-        swVY += (-SPRING_K * swY - SPRING_C * swVY) * dt;
-        swX = Mth.clamp(swX + swVX * dt, -MAX_OFFSET, MAX_OFFSET);
-        swY = Mth.clamp(swY + swVY * dt, -MAX_OFFSET, MAX_OFFSET);
+        if (longPause) HandMotion.reset();
 
         if (on != lastOn) { kick = 1f; lastOn = on; }
         kick *= (float) Math.exp(-dt * 10f);
@@ -305,59 +272,17 @@ public class FlashlightClient {
         if (moving) phase += dt * Mth.lerp(runAmt, WALK_RATE, RUN_RATE);
         if (phase > 6.2831853f) phase -= 6.2831853f;
         gaitNs = now;
-        updateRunExtras(p, dt, yaw, dy, dp, running);
-    }
 
-    /** The extra motion of the RUN (Run.txt): the vertical phase and the inertia springs of the hand. */
-    private static void updateRunExtras(LocalPlayer p, float dt, float yaw, float dy, float dp, boolean running) {
-        boolean moving = p.isOnGround() ? p.getDeltaMovement().horizontalDistance() > 0.04 : true;
-        boolean sprint = p.isSprinting() && moving;
-        sprintAmt += ((sprint ? 1f : 0f) - sprintAmt) * (1f - (float) Math.exp(-dt * 7f));
-        if (running) phaseY += dt * Mth.lerp(runAmt, WALK_RATE, RUN_RATE) * RUN_BOB_Y_RATE;
-        if (phaseY > 6.2831853f) phaseY -= 6.2831853f;
-
+        // the springs of the hand (see HandMotion): the speeds in blocks per second, along the view and sideways
         net.minecraft.world.phys.Vec3 dm = p.getDeltaMovement();
         double rad = Math.toRadians(yaw);
-        float side = (float) (dm.x * -Math.cos(rad) + dm.z * -Math.sin(rad)) * 20f;      // blocks per second to the player's right
-        float fall = p.isOnGround() ? 0f : (float) -dm.y * 20f;                          // blocks per second downward (in the air only)
-        for (int i = 0; i < 3; i++) {
-            float target = (STRAFE_SWAY[i] * side * STRAFE_SWAY_DEG + FALL_SWAY[i] * fall * FALL_SWAY_DEG);
-            target = Mth.clamp(target, -MAX_SWAY_DEG, MAX_SWAY_DEG);
-            // turning the head: the hand lags (looking down lifts its front, turning right turns it to the left)
-            if (i == 0) rotV[i] += dp * LOOK_SWAY[0] * LOOK_SWAY_IMPULSE;
-            if (i == 1) rotV[i] += dy * LOOK_SWAY[1] * LOOK_SWAY_IMPULSE;
-            rotV[i] += (SPRING_K * (target - rot[i]) - SPRING_C * rotV[i]) * dt;
-            rot[i] = Mth.clamp(rot[i] + rotV[i] * dt, -MAX_SWAY_DEG, MAX_SWAY_DEG);
-        }
-    }
-
-    /**
-     * The run extras as one transform about the WRIST: the vertical and the forward-back bob (translation) and the inertia
-     * turning (look / strafe / fall). Everything fades in and out with the run (runAmt, sprintAmt), so walking is untouched
-     * and the change between walking and running has no jump.
-     */
-    private static void applyRunExtras(PoseStack ps) {
-        float bobK = runAmt * moveAmt;
-        float by = (float) Math.cos(phaseY) * RUN_BOB_Y * bobK;
-        float bz = (float) Math.cos(2 * phase) * RUN_BOB_Z * bobK;
-        ps.translate(0.0, by, bz);
-        float k = sprintAmt;
-        if (k > 0.001f) {
-            ps.translate(WRIST.x, WRIST.y, WRIST.z);
-            ps.mulPose(Vector3f.YP.rotationDegrees(rot[1] * k));
-            ps.mulPose(Vector3f.XP.rotationDegrees(rot[0] * k));
-            ps.mulPose(Vector3f.ZP.rotationDegrees(rot[2] * k));
-            ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
-        }
-    }
-
-    /** How far (sideways, in hand units) the lens is moved by the run extras: the light oval of the shader follows it. */
-    private static float extrasLensX() {
-        PoseStack t = new PoseStack();
-        applyRunExtras(t);
-        com.mojang.math.Vector4f v = new com.mojang.math.Vector4f((float) LENS.x, (float) LENS.y, (float) LENS.z, 1f);
-        v.transform(t.last().pose());
-        return v.x() - (float) LENS.x;
+        float fwd = (float) (dm.x * -Math.sin(rad) + dm.z * Math.cos(rad)) * 20f;
+        float right = (float) (dm.x * -Math.cos(rad) + dm.z * -Math.sin(rad)) * 20f;
+        // up: in the air the real fall / jump speed; on the ground only the climbing (the constant pull of the gravity is not a fall)
+        float up = p.isOnGround() ? (float) (p.getY() - p.yo) * 20f : (float) dm.y * 20f;
+        boolean sprint = p.isSprinting() && (speed > 0.04 || !p.isOnGround());
+        HandMotion.update(dt, fwd, right, up, p.isOnGround(), sprint, dy, -dp);
+        HandMotion.pose(hp);
     }
 
     private static long gaitNs, lastHeldNs;
@@ -370,6 +295,38 @@ public class FlashlightClient {
     public static float[] gaitState() {
         boolean live = (System.nanoTime() - gaitNs) < 250_000_000L;
         return new float[]{phase, moveAmt, runAmt, live ? 1f : 0f};
+    }
+
+    /**
+     * The motion of the hand as one transform (used for drawing AND for the circle of light, so they always agree):
+     * the breathing at rest, then the springs of HandMotion (walk / run bob, the lag when the head turns, the lean when
+     * strafing, the fall and the landing, the lower and closer pose of the run), the swing of the head of the flashlight when
+     * running. The springs turn the hand about the WRIST.
+     */
+    private static void applyMotion(PoseStack ps, float equip) {
+        float idle = 1f - moveAmt * 0.6f;
+        float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
+        float by = ((float) Math.sin(time * 1.25f) * IDLE_Y + (float) Math.sin(time * 0.55f) * IDLE_Y * 0.45f) * idle;
+        float bRoll = (float) Math.sin(time * 0.8f) * 1.3f * idle;
+        float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
+
+        // the position spring: x right, y up, z FORWARD in the original = -z here
+        ps.translate(bx + hp[0], by + hp[1] - equip * 0.6f, -hp[2]);
+        ps.mulPose(Vector3f.ZP.rotationDegrees(bRoll));
+        ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch));
+        // the rotation spring about the wrist. Original's signs: Y + = turns to the right, X + = the top goes left, Z + = the front goes up
+        ps.translate(WRIST.x, WRIST.y, WRIST.z);
+        ps.mulPose(Vector3f.YP.rotationDegrees(-hp[4]));
+        ps.mulPose(Vector3f.ZP.rotationDegrees(hp[3]));
+        ps.mulPose(Vector3f.XP.rotationDegrees(hp[5]));
+        // RUNNING only: the head of the flashlight swings wide from side to side (the cone of light follows it)
+        float headK = runAmt * moveAmt;
+        if (headK > 0.001f) {
+            float sw = (float) Math.sin(phase) * headK;
+            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_HEAD_YAW));
+            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * RUN_HEAD_ROLL));
+        }
+        ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
     }
 
     /** Убирает ванильное покачивание руки (оно «перевёрнутой дугой»), чтобы остался только наш ход. */
@@ -421,42 +378,12 @@ public class FlashlightClient {
         float ease = appear * appear * (3f - 2f * appear);
         float slide = 1f - ease;
 
-        // Ход: дуга выпуклая ВВЕРХ (∩). x = sin(фаза), y = cos(2*фаза) = 1 - 2x²
-        float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
-        // walking and running: an UPPER arc (the middle is the highest point), smaller when walking
-        float waveY = (float) Math.cos(2 * phase) * WALK_AMP_Y;
-        float arcY = (float) Math.cos(2 * phase) * RUN_AMP_Y;
-        float wy = Mth.lerp(runAmt, waveY, arcY) * moveAmt;
-        float wRoll = (float) Math.sin(phase) * Mth.lerp(runAmt, 2.0f, 3.4f) * moveAmt;
-        float wPitch = Mth.lerp(runAmt, waveY * 20f, arcY * 20f) * moveAmt;
-
-        // Покой: мягкое волнообразное «дыхание» (слабее при ходьбе)
-        float idle = 1f - moveAmt * 0.6f;
-        float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
-        float by = ((float) Math.sin(time * 1.25f) * IDLE_Y + (float) Math.sin(time * 0.55f) * IDLE_Y * 0.45f) * idle;
-        float bRoll = (float) Math.sin(time * 0.8f) * 1.3f * idle;
-        float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
-
         ps.pushPose();
         if (mc.options.bobView().get()) {
             cancelVanillaBob(ps, pl, e.getPartialTick());
         }
-        // long-range light: the hand and the flashlight stand still
-        // the hand keeps its normal motion in the long-range mode too
-        ps.translate(swX + bx + wx, swY + by + wy - equip * 0.6f, 0.0);
-        ps.mulPose(Vector3f.ZP.rotationDegrees(swX * -35f + bRoll + wRoll));
-        ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch + wPitch));
-        // RUNNING only (walking stays as it was): the whole rig also turns about the WRIST, so the HEAD of the flashlight
-        // swings wide from side to side, and the cone of light (drawn below with the same matrix) follows it
-        float headK = runAmt * moveAmt;
-        if (headK > 0.001f) {
-            float sw = (float) Math.sin(phase) * headK;
-            ps.translate(WRIST.x, WRIST.y, WRIST.z);
-            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * RUN_HEAD_YAW));
-            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * RUN_HEAD_ROLL));
-            ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
-        }
-        applyRunExtras(ps);
+        // the whole motion of the hand (springs, breathing, swing of the head); the hand keeps it in the long-range mode too
+        applyMotion(ps, equip);
         ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
 
         if (on) {
