@@ -50,6 +50,8 @@ public class FlashlightClient {
     private static final float FLASH_PITCH = 0.13f;
     private static final float FLASH_ROLL = 23.04f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
+    /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
+    private static final float HEAD_TURN_SCALE = 0.8f;
     private static final float RUN_HEAD_YAW = 13f;
     private static final float RUN_HEAD_ROLL = 6f;
     /** the same swing of the head of the flashlight when WALKING: as much smaller as the old walking arc was smaller than the running one (0.036 / 0.070). */
@@ -329,14 +331,14 @@ public class FlashlightClient {
         ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch));
         // the rotation spring about the wrist. Original's signs: Y + = turns to the right, X + = the top goes left, Z + = the front goes up
         ps.translate(WRIST.x, WRIST.y, WRIST.z);
-        ps.mulPose(Vector3f.YP.rotationDegrees(-hp[4]));
-        ps.mulPose(Vector3f.ZP.rotationDegrees(hp[3]));
-        ps.mulPose(Vector3f.XP.rotationDegrees(hp[5]));
+        ps.mulPose(Vector3f.YP.rotationDegrees(-hp[4] * HEAD_TURN_SCALE));
+        ps.mulPose(Vector3f.ZP.rotationDegrees(hp[3] * HEAD_TURN_SCALE));
+        ps.mulPose(Vector3f.XP.rotationDegrees(hp[5] * HEAD_TURN_SCALE));
         // WALKING and RUNNING: the head of the flashlight swings from side to side (smaller when walking); the cone of light follows it
         if (moveAmt > 0.001f) {
             float sw = (float) Math.sin(phase) * moveAmt;
-            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * Mth.lerp(runAmt, WALK_HEAD_YAW, RUN_HEAD_YAW)));
-            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * Mth.lerp(runAmt, WALK_HEAD_ROLL, RUN_HEAD_ROLL)));
+            ps.mulPose(Vector3f.YP.rotationDegrees(-sw * Mth.lerp(runAmt, WALK_HEAD_YAW, RUN_HEAD_YAW) * HEAD_TURN_SCALE));
+            ps.mulPose(Vector3f.ZP.rotationDegrees(sw * Mth.lerp(runAmt, WALK_HEAD_ROLL, RUN_HEAD_ROLL) * HEAD_TURN_SCALE));
         }
         ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
     }

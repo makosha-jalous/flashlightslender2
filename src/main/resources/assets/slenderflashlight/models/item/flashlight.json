@@ -1,7 +1,8 @@
 {
   "textures": {
     "tex": "slenderflashlight:item/flashlight",
-    "particle": "slenderflashlight:item/flashlight"
+    "particle": "slenderflashlight:item/flashlight",
+    "dark": "minecraft:block/black_concrete"
   },
   "elements": [
     {
@@ -308,57 +309,57 @@
       "faces": {
         "north": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "south": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "east": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "west": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "up": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "down": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         }
       }
     },
@@ -376,57 +377,57 @@
       "faces": {
         "north": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "south": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "east": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "west": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "up": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "down": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         }
       }
     },
@@ -444,57 +445,57 @@
       "faces": {
         "north": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "south": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "east": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "west": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "up": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "down": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         }
       },
       "rotation": {
@@ -521,57 +522,57 @@
       "faces": {
         "north": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "south": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "east": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "west": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "up": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         },
         "down": {
           "uv": [
-            4,
             0,
-            6,
-            2
+            0,
+            16,
+            16
           ],
-          "texture": "#tex"
+          "texture": "#dark"
         }
       },
       "rotation": {
