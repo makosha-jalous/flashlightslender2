@@ -42,13 +42,13 @@ public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
     // fitted to the screenshot of the original game (head, thumb and forearm line up with it)
-    private static final float FLASH_X = 0.793f;
-    private static final float FLASH_Y = -0.569f;
+    private static final float FLASH_X = 0.7035f;
+    private static final float FLASH_Y = -0.548f;
     private static final float FLASH_Z = -1.0f;
-    private static final float FLASH_SCALE = 0.815f;
+    private static final float FLASH_SCALE = 0.758f;
     private static final float FLASH_YAW = 16.25f;
     private static final float FLASH_PITCH = 0.13f;
-    private static final float FLASH_ROLL = 23.04f;
+    private static final float FLASH_ROLL = 16.5f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
@@ -57,7 +57,7 @@ public class FlashlightClient {
     /** the same swing of the head of the flashlight when WALKING: as much smaller as the old walking arc was smaller than the running one (0.036 / 0.070). */
     private static final float WALK_HEAD_YAW = RUN_HEAD_YAW * 0.036f / 0.070f;
     private static final float WALK_HEAD_ROLL = RUN_HEAD_ROLL * 0.036f / 0.070f;
-    /** the old swing of the hand (kept as it was): sideways and the height of the arc (now turned over), walking / running. */
+    /** the old arc of the hand (kept as it was): sideways and the height of the upper arc, walking / running. */
     private static final float WALK_AMP_X = 0.036f;
     private static final float RUN_AMP_X = 0.070f;
     private static final float WALK_AMP_Y = 0.020f;
@@ -321,9 +321,9 @@ public class FlashlightClient {
         float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
 
         // the old arc of the hand, as it was (only the movement: no roll, no tilt, the springs below are not touched):
-        // x = sin(phase), y = -cos(2 * phase) = the TURNED-OVER arc: the middle is the lowest point, the sides are the highest; smaller when walking
+        // x = sin(phase), y = cos(2 * phase) = the middle is the highest point; smaller when walking
         float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
-        float wy = (float) -Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
+        float wy = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
 
         // the position spring: x right, y up, z FORWARD in the original = -z here
         ps.translate(bx + hp[0] + wx, by + hp[1] + wy - equip * 0.6f, -hp[2]);
