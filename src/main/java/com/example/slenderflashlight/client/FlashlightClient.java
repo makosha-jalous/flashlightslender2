@@ -41,14 +41,14 @@ import java.util.List;
 public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
-    // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (the view of the model in Blockbench, screenshot of the user: camera looks along -Z, FOV 45, mapped to the game screen by the height of the picture)
-    private static final float FLASH_X = 2.2361f;
-    private static final float FLASH_Y = -1.4140f;
-    private static final float FLASH_Z = -1.0000f;
-    private static final float FLASH_SCALE = 1.9331f;
-    private static final float FLASH_YAW = -8.9854f;
-    private static final float FLASH_PITCH = -9.9059f;
-    private static final float FLASH_ROLL = -0.4612f;
+    // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (rough: tune these 6 numbers by eye in the game)
+    private static final float FLASH_X = 1.694f;
+    private static final float FLASH_Y = -0.612f;
+    private static final float FLASH_Z = -1.0f;
+    private static final float FLASH_SCALE = 1.113f;
+    private static final float FLASH_YAW = 0.18f;
+    private static final float FLASH_PITCH = -15.65f;
+    private static final float FLASH_ROLL = 16.0f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
@@ -113,10 +113,9 @@ public class FlashlightClient {
     private static final double RAY_PHASE = 1.771;
     private static final double SPIN = 0.12;
 
-    // the same physical point as before (0, 0, LENS_Z) of the old flashlight model, converted to the coordinates of flashlight_mesh_with_hand5
-    private static final Vec3 LENS = toRig(-0.73047, 0.30398, -1.08263);
+    private static final Vec3 LENS = toRig(0.0, 0.0, LENS_Z);
     /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
-    private static final Vec3 WRIST = toRig(-0.30802, 0.17621, -0.54800);
+    private static final Vec3 WRIST = toRig(0.15, 0.05, 0.2);
 
     // ---------- сетка руки ----------
     private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
