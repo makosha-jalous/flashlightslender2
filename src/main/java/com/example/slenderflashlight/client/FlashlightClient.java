@@ -42,13 +42,13 @@ public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
     // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (rough: tune these 6 numbers by eye in the game)
-    private static final float FLASH_X = 1.686f;
-    private static final float FLASH_Y = -0.764f;
+    private static final float FLASH_X = 1.694f;
+    private static final float FLASH_Y = -0.612f;
     private static final float FLASH_Z = -1.0f;
-    private static final float FLASH_SCALE = 1.094f;
-    private static final float FLASH_YAW = -13.52f;
-    private static final float FLASH_PITCH = 3.6f;
-    private static final float FLASH_ROLL = 2.53f;
+    private static final float FLASH_SCALE = 1.113f;
+    private static final float FLASH_YAW = 0.18f;
+    private static final float FLASH_PITCH = -15.65f;
+    private static final float FLASH_ROLL = 16.0f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
