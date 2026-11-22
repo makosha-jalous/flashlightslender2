@@ -41,14 +41,14 @@ import java.util.List;
 public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
-    // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (rough: tune these 6 numbers by eye in the game)
-    private static final float FLASH_X = 1.852f;
-    private static final float FLASH_Y = -1.037f;
-    private static final float FLASH_Z = -1.0f;
-    private static final float FLASH_SCALE = 1.417f;
-    private static final float FLASH_YAW = -23.07f;
-    private static final float FLASH_PITCH = -13.74f;
-    private static final float FLASH_ROLL = -0.76f;
+    // First-pass camera-space placement: compact, close to the camera, and diagonally aligned. Fine-tune in-game.
+    private static final float FLASH_X = 0.55f;
+    private static final float FLASH_Y = -0.42f;
+    private static final float FLASH_Z = -0.55f;
+    private static final float FLASH_SCALE = 1.15f;
+    private static final float FLASH_YAW = -23.0f;
+    private static final float FLASH_PITCH = -14.0f;
+    private static final float FLASH_ROLL = 32.0f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
