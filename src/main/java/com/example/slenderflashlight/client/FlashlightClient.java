@@ -13,6 +13,23 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.math.Matrix4f;
 import com.mojang.math.Vector3f;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.network.chat.Component;
+import net.minecraftforge.client.ClientRegistry;
+import net.minecraftforge.client.event.InputEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber.Bus;
+import net.minecraftforge.fml.loading.FMLPaths;
+import net.minecraftforge.eventbus.api.EventPriority;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.mojang.blaze3d.platform.InputConstants;
+import org.lwjgl.glfw.GLFW;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.io.Reader;
+import java.io.Writer;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.LightTexture;
@@ -41,14 +58,14 @@ import java.util.List;
 public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
-    // First-pass camera-space placement: compact, close to the camera, and diagonally aligned. Fine-tune in-game.
-    private static final float FLASH_X = 0.64f;
-    private static final float FLASH_Y = -0.52f;
-    private static final float FLASH_Z = -0.72f;
-    private static final float FLASH_SCALE = 0.85f;
-    private static final float FLASH_YAW = -16.0f;
-    private static final float FLASH_PITCH = -8.0f;
-    private static final float FLASH_ROLL = 24.0f;
+    // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (rough: tune these 6 numbers by eye in the game)
+    private static float FLASH_X = 1.852f;
+    private static float FLASH_Y = -1.037f;
+    private static float FLASH_Z = -1.0f;
+    private static float FLASH_SCALE = 1.417f;
+    private static float FLASH_YAW = -23.07f;
+    private static float FLASH_PITCH = -13.74f;
+    private static float FLASH_ROLL = -0.76f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
@@ -113,15 +130,138 @@ public class FlashlightClient {
     private static final double RAY_PHASE = 1.771;
     private static final double SPIN = 0.12;
 
-    private static final Vec3 LENS = toRig(-0.543, 0.158, LENS_Z);
-    /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
-    private static final Vec3 WRIST = toRig(-0.252, 0.136, -0.384);
+    private static Vec3 lens() { return toRig(-0.543, 0.158, LENS_Z); }
+    /** Pivot of the running swing; recalculated when the editor changes the model transform. */
+    private static Vec3 wrist() { return toRig(-0.252, 0.136, -0.384); }
 
     // ---------- сетка руки ----------
     private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
     /** Вершины: по 4 числа (x, y, z, затенение). */
     private static final float[] ARM = buildArm();
     private static final float[] FINGERS = buildFingers();
+
+    // ---------- Встроенный редактор положения (Forge 1.19.2) ----------
+    private static boolean editorOpen = false;
+    private static final float MOVE_STEP = 0.01f;
+    private static final float ROT_STEP = 1.0f;
+    private static final float SCALE_STEP = 0.01f;
+    private static final Gson EDITOR_GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Path EDITOR_CONFIG = FMLPaths.CONFIGDIR.get().resolve("slenderflashlight-client.json");
+
+    private static final KeyMapping KEY_EDITOR = key("key.slenderflashlight.editor", GLFW.GLFW_KEY_F6);
+    private static final KeyMapping KEY_SAVE = key("key.slenderflashlight.save_pose", GLFW.GLFW_KEY_F7);
+    private static final KeyMapping KEY_LEFT = key("key.slenderflashlight.move_left", GLFW.GLFW_KEY_LEFT);
+    private static final KeyMapping KEY_RIGHT = key("key.slenderflashlight.move_right", GLFW.GLFW_KEY_RIGHT);
+    private static final KeyMapping KEY_UP = key("key.slenderflashlight.move_up", GLFW.GLFW_KEY_UP);
+    private static final KeyMapping KEY_DOWN = key("key.slenderflashlight.move_down", GLFW.GLFW_KEY_DOWN);
+    private static final KeyMapping KEY_Z_IN = key("key.slenderflashlight.depth_in", GLFW.GLFW_KEY_PAGE_UP);
+    private static final KeyMapping KEY_Z_OUT = key("key.slenderflashlight.depth_out", GLFW.GLFW_KEY_PAGE_DOWN);
+    private static final KeyMapping KEY_YAW_MINUS = key("key.slenderflashlight.yaw_minus", GLFW.GLFW_KEY_KP_4);
+    private static final KeyMapping KEY_YAW_PLUS = key("key.slenderflashlight.yaw_plus", GLFW.GLFW_KEY_KP_6);
+    private static final KeyMapping KEY_PITCH_MINUS = key("key.slenderflashlight.pitch_minus", GLFW.GLFW_KEY_KP_8);
+    private static final KeyMapping KEY_PITCH_PLUS = key("key.slenderflashlight.pitch_plus", GLFW.GLFW_KEY_KP_2);
+    private static final KeyMapping KEY_ROLL_MINUS = key("key.slenderflashlight.roll_minus", GLFW.GLFW_KEY_KP_7);
+    private static final KeyMapping KEY_ROLL_PLUS = key("key.slenderflashlight.roll_plus", GLFW.GLFW_KEY_KP_9);
+    private static final KeyMapping KEY_SCALE_DOWN = key("key.slenderflashlight.scale_down", GLFW.GLFW_KEY_MINUS);
+    private static final KeyMapping KEY_SCALE_UP = key("key.slenderflashlight.scale_up", GLFW.GLFW_KEY_EQUAL);
+
+    private static KeyMapping key(String name, int code) {
+        return new KeyMapping(name, InputConstants.Type.KEYSYM, code, "key.categories.slenderflashlight");
+    }
+
+    private static final class PoseConfig {
+        float x = FLASH_X, y = FLASH_Y, z = FLASH_Z, scale = FLASH_SCALE;
+        float yaw = FLASH_YAW, pitch = FLASH_PITCH, roll = FLASH_ROLL;
+    }
+
+    private static void loadEditorPose() {
+        try {
+            if (Files.exists(EDITOR_CONFIG)) {
+                try (Reader reader = Files.newBufferedReader(EDITOR_CONFIG)) {
+                    PoseConfig c = EDITOR_GSON.fromJson(reader, PoseConfig.class);
+                    if (c != null) applyPose(c);
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    private static void applyPose(PoseConfig c) {
+        FLASH_X = c.x; FLASH_Y = c.y; FLASH_Z = c.z; FLASH_SCALE = Mth.clamp(c.scale, 0.05f, 5f);
+        FLASH_YAW = c.yaw; FLASH_PITCH = c.pitch; FLASH_ROLL = c.roll;
+    }
+
+    private static void saveEditorPose() {
+        try {
+            Files.createDirectories(EDITOR_CONFIG.getParent());
+            PoseConfig c = new PoseConfig();
+            c.x = FLASH_X; c.y = FLASH_Y; c.z = FLASH_Z; c.scale = FLASH_SCALE;
+            c.yaw = FLASH_YAW; c.pitch = FLASH_PITCH; c.roll = FLASH_ROLL;
+            try (Writer writer = Files.newBufferedWriter(EDITOR_CONFIG)) { EDITOR_GSON.toJson(c, writer); }
+            message("Положение фонарика сохранено");
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            message("Не удалось сохранить положение — смотри лог");
+        }
+    }
+
+    private static void message(String value) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) mc.player.displayClientMessage(Component.literal(value), true);
+    }
+
+    private static void tickEditor() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        while (KEY_EDITOR.consumeClick()) {
+            editorOpen = !editorOpen;
+            message(editorOpen ? "Редактор включён · F7 сохранить · F6 закрыть" : "Редактор выключен");
+        }
+        while (KEY_SAVE.consumeClick()) saveEditorPose();
+        if (!editorOpen || mc.screen != null) return;
+        boolean changed = false;
+        if (KEY_LEFT.isDown()) { FLASH_X -= MOVE_STEP; changed = true; }
+        if (KEY_RIGHT.isDown()) { FLASH_X += MOVE_STEP; changed = true; }
+        if (KEY_UP.isDown()) { FLASH_Y += MOVE_STEP; changed = true; }
+        if (KEY_DOWN.isDown()) { FLASH_Y -= MOVE_STEP; changed = true; }
+        if (KEY_Z_IN.isDown()) { FLASH_Z += MOVE_STEP; changed = true; }
+        if (KEY_Z_OUT.isDown()) { FLASH_Z -= MOVE_STEP; changed = true; }
+        if (KEY_YAW_MINUS.isDown()) { FLASH_YAW -= ROT_STEP; changed = true; }
+        if (KEY_YAW_PLUS.isDown()) { FLASH_YAW += ROT_STEP; changed = true; }
+        if (KEY_PITCH_MINUS.isDown()) { FLASH_PITCH -= ROT_STEP; changed = true; }
+        if (KEY_PITCH_PLUS.isDown()) { FLASH_PITCH += ROT_STEP; changed = true; }
+        if (KEY_ROLL_MINUS.isDown()) { FLASH_ROLL -= ROT_STEP; changed = true; }
+        if (KEY_ROLL_PLUS.isDown()) { FLASH_ROLL += ROT_STEP; changed = true; }
+        if (KEY_SCALE_DOWN.isDown()) { FLASH_SCALE = Math.max(0.05f, FLASH_SCALE - SCALE_STEP); changed = true; }
+        if (KEY_SCALE_UP.isDown()) { FLASH_SCALE = Math.min(5f, FLASH_SCALE + SCALE_STEP); changed = true; }
+        if (changed) message(String.format(java.util.Locale.ROOT,
+                "X %.2f  Y %.2f  Z %.2f | масштаб %.2f | поворот %.1f / %.1f / %.1f",
+                FLASH_X, FLASH_Y, FLASH_Z, FLASH_SCALE, FLASH_YAW, FLASH_PITCH, FLASH_ROLL));
+    }
+
+    @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID, bus = Bus.MOD, value = Dist.CLIENT)
+    public static class EditorModEvents {
+        @SubscribeEvent
+        public static void onClientSetup(FMLClientSetupEvent event) {
+            event.enqueueWork(() -> {
+                ClientRegistry.registerKeyBinding(KEY_EDITOR); ClientRegistry.registerKeyBinding(KEY_SAVE);
+                ClientRegistry.registerKeyBinding(KEY_LEFT); ClientRegistry.registerKeyBinding(KEY_RIGHT);
+                ClientRegistry.registerKeyBinding(KEY_UP); ClientRegistry.registerKeyBinding(KEY_DOWN);
+                ClientRegistry.registerKeyBinding(KEY_Z_IN); ClientRegistry.registerKeyBinding(KEY_Z_OUT);
+                ClientRegistry.registerKeyBinding(KEY_YAW_MINUS); ClientRegistry.registerKeyBinding(KEY_YAW_PLUS);
+                ClientRegistry.registerKeyBinding(KEY_PITCH_MINUS); ClientRegistry.registerKeyBinding(KEY_PITCH_PLUS);
+                ClientRegistry.registerKeyBinding(KEY_ROLL_MINUS); ClientRegistry.registerKeyBinding(KEY_ROLL_PLUS);
+                ClientRegistry.registerKeyBinding(KEY_SCALE_DOWN); ClientRegistry.registerKeyBinding(KEY_SCALE_UP);
+                loadEditorPose();
+            });
+        }
+    }
+
+    @SubscribeEvent
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) tickEditor();
+    }
 
     private static void applyFlashTransform(PoseStack ps) {
         ps.translate(FLASH_X, FLASH_Y, FLASH_Z);
@@ -237,9 +377,9 @@ public class FlashlightClient {
     private static float shaderX() {
         PoseStack t = new PoseStack();
         applyMotion(t, 0f);
-        com.mojang.math.Vector4f v = new com.mojang.math.Vector4f((float) LENS.x, (float) LENS.y, (float) LENS.z, 1f);
+        com.mojang.math.Vector4f v = new com.mojang.math.Vector4f((float) lens().x, (float) lens().y, (float) lens().z, 1f);
         v.transform(t.last().pose());
-        return v.x() - (float) LENS.x;
+        return v.x() - (float) lens().x;
     }
 
     /**
@@ -330,7 +470,8 @@ public class FlashlightClient {
         ps.mulPose(Vector3f.ZP.rotationDegrees(bRoll));
         ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch));
         // the rotation spring about the wrist. Original's signs: Y + = turns to the right, X + = the top goes left, Z + = the front goes up
-        ps.translate(WRIST.x, WRIST.y, WRIST.z);
+        Vec3 wrist = wrist();
+        ps.translate(wrist.x, wrist.y, wrist.z);
         ps.mulPose(Vector3f.YP.rotationDegrees(-hp[4] * HEAD_TURN_SCALE));
         ps.mulPose(Vector3f.ZP.rotationDegrees(hp[3] * HEAD_TURN_SCALE));
         ps.mulPose(Vector3f.XP.rotationDegrees(hp[5] * HEAD_TURN_SCALE));
@@ -340,7 +481,7 @@ public class FlashlightClient {
             ps.mulPose(Vector3f.YP.rotationDegrees(-sw * Mth.lerp(runAmt, WALK_HEAD_YAW, RUN_HEAD_YAW) * HEAD_TURN_SCALE));
             ps.mulPose(Vector3f.ZP.rotationDegrees(sw * Mth.lerp(runAmt, WALK_HEAD_ROLL, RUN_HEAD_ROLL) * HEAD_TURN_SCALE));
         }
-        ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
+        ps.translate(-wrist.x, -wrist.y, -wrist.z);
     }
 
     /** Убирает ванильное покачивание руки (оно «перевёрнутой дугой»), чтобы остался только наш ход. */
@@ -512,7 +653,7 @@ public class FlashlightClient {
         float[] al = {alpha * 0.3f, alpha, 0f};
         Vec3[][] ring = new Vec3[3][RING];
         for (int s = 0; s < 3; s++) {
-            Vec3 centre = LENS.add(dir.scale(rayLen * at[s]));
+            Vec3 centre = lens().add(dir.scale(rayLen * at[s]));
             double radius = RAY_START_RADIUS + rayLen * at[s] * tan;
             for (int k = 0; k < RING; k++) {
                 double a = 2 * Math.PI * k / RING;
