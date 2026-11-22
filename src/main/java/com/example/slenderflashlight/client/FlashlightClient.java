@@ -42,13 +42,13 @@ public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
     // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (rough: tune these 6 numbers by eye in the game)
-    private static final float FLASH_X = 1.694f;
-    private static final float FLASH_Y = -0.612f;
+    private static final float FLASH_X = 1.852f;
+    private static final float FLASH_Y = -1.037f;
     private static final float FLASH_Z = -1.0f;
-    private static final float FLASH_SCALE = 1.113f;
-    private static final float FLASH_YAW = 0.18f;
-    private static final float FLASH_PITCH = -15.65f;
-    private static final float FLASH_ROLL = 16.0f;
+    private static final float FLASH_SCALE = 1.417f;
+    private static final float FLASH_YAW = -23.07f;
+    private static final float FLASH_PITCH = -13.74f;
+    private static final float FLASH_ROLL = -0.76f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
@@ -62,7 +62,7 @@ public class FlashlightClient {
     private static final float RUN_AMP_X = 0.070f;
     private static final float WALK_AMP_Y = 0.020f;
     private static final float RUN_AMP_Y = 0.040f;
-    private static final float LENS_Z = -0.475f;
+    private static final float LENS_Z = -1.061f;
 
     // ---------- РУКА ИЗ МОДЕЛИ (Blockbench) ----------
     /** the hand as an ordinary item model: assets/slenderflashlight/models/item/flashlight_hand.json (open it in Blockbench). */
@@ -113,9 +113,9 @@ public class FlashlightClient {
     private static final double RAY_PHASE = 1.771;
     private static final double SPIN = 0.12;
 
-    private static final Vec3 LENS = toRig(0.0, 0.0, LENS_Z);
+    private static final Vec3 LENS = toRig(-0.543, 0.158, LENS_Z);
     /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
-    private static final Vec3 WRIST = toRig(0.15, 0.05, 0.2);
+    private static final Vec3 WRIST = toRig(-0.252, 0.136, -0.384);
 
     // ---------- сетка руки ----------
     private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
