@@ -42,13 +42,13 @@ public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
     // First-pass camera-space placement: compact, close to the camera, and diagonally aligned. Fine-tune in-game.
-    private static final float FLASH_X = 0.55f;
-    private static final float FLASH_Y = -0.42f;
-    private static final float FLASH_Z = -0.55f;
-    private static final float FLASH_SCALE = 1.15f;
-    private static final float FLASH_YAW = -23.0f;
-    private static final float FLASH_PITCH = -14.0f;
-    private static final float FLASH_ROLL = 32.0f;
+    private static final float FLASH_X = 0.64f;
+    private static final float FLASH_Y = -0.52f;
+    private static final float FLASH_Z = -0.72f;
+    private static final float FLASH_SCALE = 0.85f;
+    private static final float FLASH_YAW = -16.0f;
+    private static final float FLASH_PITCH = -8.0f;
+    private static final float FLASH_ROLL = 24.0f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
