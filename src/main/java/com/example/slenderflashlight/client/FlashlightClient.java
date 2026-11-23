@@ -42,13 +42,13 @@ public class FlashlightClient {
 
     // ---------- положение фонарика (как было) ----------
     // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (rough: tune these 6 numbers by eye in the game)
-    private static float FLASH_X = 1.694f;
-    private static float FLASH_Y = -0.612f;
-    private static float FLASH_Z = -1.0f;
-    private static float FLASH_SCALE = 1.113f;
-    private static float FLASH_YAW = 0.18f;
-    private static float FLASH_PITCH = -15.65f;
-    private static float FLASH_ROLL = 16.0f;
+    private static float FLASH_X = 1.9155f;
+    private static float FLASH_Y = -0.9014f;
+    private static float FLASH_Z = -0.8901f;
+    private static float FLASH_SCALE = 1.9751f;
+    private static float FLASH_YAW = -31.3521f;
+    private static float FLASH_PITCH = -7.6056f;
+    private static float FLASH_ROLL = 18.5916f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
@@ -63,6 +63,9 @@ public class FlashlightClient {
     private static final float WALK_AMP_Y = 0.020f;
     private static final float RUN_AMP_Y = 0.040f;
     private static final float LENS_Z = -0.475f;
+    /** the lens (the head) and the wrist in the coordinates of the NEW flashlight+hand model (they move with it). */
+    private static final float[] LENS_LOCAL = {-0.73047f, 0.30398f, -1.08263f};
+    private static final float[] WRIST_LOCAL = {-0.30802f, 0.17621f, -0.54800f};
 
     /** the pose that is written in the code (the tuner's "Reset" goes back to it): x, y, z, scale, yaw, pitch, roll. */
     private static final float[] DEFAULT_POSE = {FLASH_X, FLASH_Y, FLASH_Z, FLASH_SCALE, FLASH_YAW, FLASH_PITCH, FLASH_ROLL};
@@ -72,8 +75,8 @@ public class FlashlightClient {
     public static void setPose(float[] p) {
         FLASH_X = p[0]; FLASH_Y = p[1]; FLASH_Z = p[2]; FLASH_SCALE = p[3];
         FLASH_YAW = p[4]; FLASH_PITCH = p[5]; FLASH_ROLL = p[6];
-        LENS = toRig(0.0, 0.0, LENS_Z);
-        WRIST = toRig(0.15, 0.05, 0.2);
+        LENS = toRig(LENS_LOCAL[0], LENS_LOCAL[1], LENS_LOCAL[2]);
+        WRIST = toRig(WRIST_LOCAL[0], WRIST_LOCAL[1], WRIST_LOCAL[2]);
     }
 
     // ---------- РУКА ИЗ МОДЕЛИ (Blockbench) ----------
@@ -125,9 +128,9 @@ public class FlashlightClient {
     private static final double RAY_PHASE = 1.771;
     private static final double SPIN = 0.12;
 
-    private static Vec3 LENS = toRig(0.0, 0.0, LENS_Z);
+    private static Vec3 LENS = toRig(LENS_LOCAL[0], LENS_LOCAL[1], LENS_LOCAL[2]);
     /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
-    private static Vec3 WRIST = toRig(0.15, 0.05, 0.2);
+    private static Vec3 WRIST = toRig(WRIST_LOCAL[0], WRIST_LOCAL[1], WRIST_LOCAL[2]);
 
     // ---------- сетка руки ----------
     private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
