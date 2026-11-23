@@ -562,10 +562,10 @@ public class FlashlightClient {
             float a0 = alpha * rayFade((float) t0), a1 = alpha * rayFade((float) t1);
             Vec3 p0 = c0.add(side.scale(-h0)), p1 = c0.add(side.scale(h0));
             Vec3 p2 = c1.add(side.scale(h1)), p3 = c1.add(side.scale(-h1));
-            bb.vertex(m, (float) p0.x, (float) p0.y, (float) p0.z).uv(0f, (float) t0).color(1f, 1f, 1f, a0).endVertex();
-            bb.vertex(m, (float) p1.x, (float) p1.y, (float) p1.z).uv(1f, (float) t0).color(1f, 1f, 1f, a0).endVertex();
-            bb.vertex(m, (float) p2.x, (float) p2.y, (float) p2.z).uv(1f, (float) t1).color(1f, 1f, 1f, a1).endVertex();
-            bb.vertex(m, (float) p3.x, (float) p3.y, (float) p3.z).uv(0f, (float) t1).color(1f, 1f, 1f, a1).endVertex();
+            bb.vertex(m, (float) p0.x, (float) p0.y, (float) p0.z).color(1f, 1f, 1f, a0).uv(0f, (float) t0).endVertex();
+            bb.vertex(m, (float) p1.x, (float) p1.y, (float) p1.z).color(1f, 1f, 1f, a0).uv(1f, (float) t0).endVertex();
+            bb.vertex(m, (float) p2.x, (float) p2.y, (float) p2.z).color(1f, 1f, 1f, a1).uv(1f, (float) t1).endVertex();
+            bb.vertex(m, (float) p3.x, (float) p3.y, (float) p3.z).color(1f, 1f, 1f, a1).uv(0f, (float) t1).endVertex();
         }
     }
 
