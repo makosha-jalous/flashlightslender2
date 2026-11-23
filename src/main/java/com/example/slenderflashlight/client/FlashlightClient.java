@@ -64,8 +64,7 @@ public class FlashlightClient {
     private static final float RUN_AMP_Y = 0.040f;
     private static final float LENS_Z = -0.475f;
     /** the lens (the head) and the wrist in the coordinates of the NEW flashlight+hand model (they move with it). */
-    private static final float[] LENS_LOCAL = {-0.73047f, 0.30398f, -1.08263f};
-    private static final float[] WRIST_LOCAL = {-0.30802f, 0.17621f, -0.54800f};
+    private static final float[] LENS_LOCAL = {-0.5979f, 0.3845f, -0.9760f};
 
     /** the pose that is written in the code (the tuner's "Reset" goes back to it): x, y, z, scale, yaw, pitch, roll. */
     private static final float[] DEFAULT_POSE = {FLASH_X, FLASH_Y, FLASH_Z, FLASH_SCALE, FLASH_YAW, FLASH_PITCH, FLASH_ROLL};
@@ -76,7 +75,6 @@ public class FlashlightClient {
         FLASH_X = p[0]; FLASH_Y = p[1]; FLASH_Z = p[2]; FLASH_SCALE = p[3];
         FLASH_YAW = p[4]; FLASH_PITCH = p[5]; FLASH_ROLL = p[6];
         LENS = toRig(LENS_LOCAL[0], LENS_LOCAL[1], LENS_LOCAL[2]);
-        WRIST = toRig(WRIST_LOCAL[0], WRIST_LOCAL[1], WRIST_LOCAL[2]);
     }
 
     // ---------- РУКА ИЗ МОДЕЛИ (Blockbench) ----------
@@ -129,8 +127,8 @@ public class FlashlightClient {
     private static final double SPIN = 0.12;
 
     private static Vec3 LENS = toRig(LENS_LOCAL[0], LENS_LOCAL[1], LENS_LOCAL[2]);
-    /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
-    private static Vec3 WRIST = toRig(WRIST_LOCAL[0], WRIST_LOCAL[1], WRIST_LOCAL[2]);
+    /** the pivot of the springs and of the swing: the wrist. A FIXED point of the screen (where the correct arc was made), it does not move when the pose of the model is tuned. */
+    private static final Vec3 WRIST = new Vec3(1.8397, -0.4561, -0.8130);
 
     // ---------- сетка руки ----------
     private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
@@ -373,6 +371,32 @@ public class FlashlightClient {
         ps.translate(-tx, -ty, 0.0);
     }
 
+    /**
+     * What the shader pack gets (FlashlightLink): where the lens (the head) is on the screen RIGHT NOW, with the whole motion of
+     * the hand (springs, walk, run, fall, breathing), and where the beam points. {lens x / 2, lens y / 2 (NDC of the hand
+     * projection, 70 degrees), beam slope x, y}. The circle of light is put exactly at the lens, so it follows the head.
+     */
+    static float[] track(LocalPlayer pl, float pt) {
+        Minecraft mc = Minecraft.getInstance();
+        float ease0 = appear * appear * (3f - 2f * appear);
+        float slide = 1f - ease0;
+        PoseStack cur = new PoseStack();
+        applyMotion(cur, 0f);
+        cur.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
+        float tanH = (float) Math.tan(Math.toRadians(35.0));
+        float aspect = (float) mc.getWindow().getWidth() / Math.max(1f, (float) mc.getWindow().getHeight());
+        com.mojang.math.Vector4f o = new com.mojang.math.Vector4f((float) LENS.x, (float) LENS.y, (float) LENS.z, 1f);
+        com.mojang.math.Vector4f d = new com.mojang.math.Vector4f(0f, 0f, -1f, 0f);
+        Matrix4f m = cur.last().pose();
+        o.transform(m);
+        d.transform(m);
+        float od = Math.max(0.05f, -o.z());
+        float dd = Math.max(0.05f, -d.z());
+        return new float[]{
+                o.x() / od / (tanH * aspect) * 0.5f, o.y() / od / tanH * 0.5f,
+                d.x() / dd / (tanH * aspect), d.y() / dd / tanH};
+    }
+
     @SubscribeEvent
     public static void onRenderHand(RenderHandEvent e) {
         ItemStack stack = e.getItemStack();
@@ -510,37 +534,46 @@ public class FlashlightClient {
         return (float) (0.9 + 0.1 * Math.sin(t * 0.8 + i * 1.7));
     }
 
-    private static void tri(BufferBuilder bb, Matrix4f m, Vec3 a, float aa, Vec3 b, float ba, Vec3 c, float ca) {
-        bb.vertex(m, (float) a.x, (float) a.y, (float) a.z).color(1f, 1f, 1f, aa).endVertex();
-        bb.vertex(m, (float) b.x, (float) b.y, (float) b.z).color(1f, 1f, 1f, ba).endVertex();
-        bb.vertex(m, (float) c.x, (float) c.y, (float) c.z).color(1f, 1f, 1f, ca).endVertex();
+    // =====================================================================
+    //  The rays of the light (like in the original: soft fibrous streaks that fan out of the head and turn slowly)
+    // =====================================================================
+    private static final ResourceLocation RAY_TEX = new ResourceLocation(SlenderFlashlightMod.ID, "textures/effect/flashlight_ray.png");
+    /** how long a ray is, in "distances from the camera to the head": normal / long-range light. */
+    private static final float RAY_LEN_NORMAL = 1.9f, RAY_LEN_FOCUS = 3.2f;
+    /** how fast a ray widens (degrees): normal / long-range light. */
+    private static final float RAY_WIDEN_NORMAL = 4.0f, RAY_WIDEN_FOCUS = 1.8f;
+    private static final int RAY_STEPS = 10;
+    /** how bright the streaks are (0..1): raise it if the rays are too faint. */
+    private static final float RAY_TEX_ALPHA = 0.26f;
+
+    private static void drawRay(BufferBuilder bb, Matrix4f m, Vec3 dir, float alpha, float foc) {
+        // the ribbon lies in the plane facing the camera: its width is across the ray, seen on the screen
+        double sl = Math.sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (sl < 1e-4) return;
+        Vec3 side = new Vec3(dir.y / sl, -dir.x / sl, 0.0);
+        double depth = Math.max(0.5, -LENS.z);
+        double len = depth * Mth.lerp(foc, RAY_LEN_NORMAL, RAY_LEN_FOCUS);
+        double tan = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_WIDEN_NORMAL, RAY_WIDEN_FOCUS)));
+        double w0 = 0.05 * FLASH_SCALE;
+        for (int s = 0; s < RAY_STEPS; s++) {
+            double t0 = (double) s / RAY_STEPS, t1 = (double) (s + 1) / RAY_STEPS;
+            Vec3 c0 = LENS.add(dir.scale(len * t0)), c1 = LENS.add(dir.scale(len * t1));
+            double h0 = w0 + len * t0 * tan, h1 = w0 + len * t1 * tan;
+            float a0 = alpha * rayFade((float) t0), a1 = alpha * rayFade((float) t1);
+            Vec3 p0 = c0.add(side.scale(-h0)), p1 = c0.add(side.scale(h0));
+            Vec3 p2 = c1.add(side.scale(h1)), p3 = c1.add(side.scale(-h1));
+            bb.vertex(m, (float) p0.x, (float) p0.y, (float) p0.z).uv(0f, (float) t0).color(1f, 1f, 1f, a0).endVertex();
+            bb.vertex(m, (float) p1.x, (float) p1.y, (float) p1.z).uv(1f, (float) t0).color(1f, 1f, 1f, a0).endVertex();
+            bb.vertex(m, (float) p2.x, (float) p2.y, (float) p2.z).uv(1f, (float) t1).color(1f, 1f, 1f, a1).endVertex();
+            bb.vertex(m, (float) p3.x, (float) p3.y, (float) p3.z).uv(0f, (float) t1).color(1f, 1f, 1f, a1).endVertex();
+        }
     }
 
-    private static void drawRay(BufferBuilder bb, Matrix4f m, Vec3 dir, float alpha) {
-        Vec3 helper = Math.abs(dir.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
-        Vec3 p = dir.cross(helper).normalize();
-        Vec3 q = dir.cross(p);
-        float foc = FlashlightFocus.amount();
-        double tan = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_HALF_ANGLE, 4.5f)));
-        float rayLen = Mth.lerp(foc, RAY_LENGTH, 2.8f);
-        double[] at = {0.0, RAY_MID, 1.0};
-        float[] al = {alpha * 0.3f, alpha, 0f};
-        Vec3[][] ring = new Vec3[3][RING];
-        for (int s = 0; s < 3; s++) {
-            Vec3 centre = LENS.add(dir.scale(rayLen * at[s]));
-            double radius = RAY_START_RADIUS + rayLen * at[s] * tan;
-            for (int k = 0; k < RING; k++) {
-                double a = 2 * Math.PI * k / RING;
-                ring[s][k] = centre.add(p.scale(Math.cos(a) * radius)).add(q.scale(Math.sin(a) * radius));
-            }
-        }
-        for (int s = 0; s < 2; s++) {
-            for (int k = 0; k < RING; k++) {
-                int k2 = (k + 1) % RING;
-                tri(bb, m, ring[s][k], al[s], ring[s + 1][k], al[s + 1], ring[s + 1][k2], al[s + 1]);
-                tri(bb, m, ring[s][k], al[s], ring[s + 1][k2], al[s + 1], ring[s][k2], al[s]);
-            }
-        }
+    /** brightness along a ray: fades in at the head, fades out far away. */
+    private static float rayFade(float t) {
+        float in = Mth.clamp(t / 0.12f, 0f, 1f);
+        in = in * in * (3f - 2f * in);
+        return in * (float) Math.pow(1.0 - t, 1.4);
     }
 
     private static void drawRays(Matrix4f m, float visible) {
@@ -551,16 +584,19 @@ public class FlashlightClient {
         RenderSystem.depthFunc(515);
         RenderSystem.disableCull();
         RenderSystem.depthMask(false);
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        bb.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+        RenderSystem.setShader(GameRenderer::getPositionColorTexShader);
+        RenderSystem.setShaderTexture(0, RAY_TEX);
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
 
+        float foc = FlashlightFocus.amount();
         double t = (System.nanoTime() - START_NS) / 1e9;
         double spin = RAY_PHASE + t * SPIN;
-        double off = Math.tan(Math.toRadians(Mth.lerp(FlashlightFocus.amount(), RAY_OFFSET, 7.0f)));
+        double off = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_OFFSET, 7.0f)));
         for (int i = 0; i < RAYS; i++) {
             double phi = 2 * Math.PI * i / RAYS + spin;
             Vec3 dir = new Vec3(off * Math.cos(phi), off * Math.sin(phi), -1.0).normalize();
-            drawRay(bb, m, dir, RAY_ALPHA * visible * pulse(i, t) * (1f + 0.6f * FlashlightFocus.amount()));
+            drawRay(bb, m, dir, RAY_TEX_ALPHA * visible * pulse(i, t) * (1f + 0.6f * foc), foc);
         }
         BufferUploader.drawWithShader(bb.end());
 
