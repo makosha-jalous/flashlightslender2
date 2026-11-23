@@ -27,11 +27,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,15 +40,15 @@ import java.util.List;
 @Mod.EventBusSubscriber(modid = SlenderFlashlightMod.ID, value = Dist.CLIENT)
 public class FlashlightClient {
 
-    // ---------- положение фонарика (настраивается в игре на F8) ----------
-    public static float FLASH_X = 0.55f;
-    public static float FLASH_Y = -0.42f;
-    public static float FLASH_Z = -0.55f;
-    public static float FLASH_SCALE = 1.15f;
-    public static float FLASH_YAW = -23.0f;
-    public static float FLASH_PITCH = -14.0f;
-    public static float FLASH_ROLL = 32.0f;
-
+    // ---------- положение фонарика (как было) ----------
+    // fitted by computer to the screenshot of the original game for flashlight_mesh_with_hand5 (rough: tune these 6 numbers by eye in the game)
+    private static final float FLASH_X = 1.694f;
+    private static final float FLASH_Y = -0.612f;
+    private static final float FLASH_Z = -1.0f;
+    private static final float FLASH_SCALE = 1.113f;
+    private static final float FLASH_YAW = 0.18f;
+    private static final float FLASH_PITCH = -15.65f;
+    private static final float FLASH_ROLL = 16.0f;
     /** running: how far the head swings from side to side (degrees about the wrist). Minus sign = the other direction. */
     /** how strong the TURNS of the flashlight head are (left-right, up-down, roll): the springs and the walking / running swing. 1 = as before. */
     private static final float HEAD_TURN_SCALE = 0.8f;
@@ -64,7 +62,7 @@ public class FlashlightClient {
     private static final float RUN_AMP_X = 0.070f;
     private static final float WALK_AMP_Y = 0.020f;
     private static final float RUN_AMP_Y = 0.040f;
-    private static final float LENS_Z = -1.061f;
+    private static final float LENS_Z = -0.475f;
 
     // ---------- РУКА ИЗ МОДЕЛИ (Blockbench) ----------
     /** the hand as an ordinary item model: assets/slenderflashlight/models/item/flashlight_hand.json (open it in Blockbench). */
@@ -88,6 +86,10 @@ public class FlashlightClient {
     private static final double FING_HX = 0.17, FING_HY = 0.05, FING_HZ = 0.11;
 
     // ---------- ходьба / бег ----------
+    // Walking (with the camera: Slowness II): the hand goes along a wave - side to side, with a snake-like up/down wave
+    // (1.5 waves from one end to the other). Running (Slowness I): a wide swing from side to side along an UPPER arc.
+    // The speed of the steps follows the REAL speed of the player (so Slowness 1 / 2 changes it by itself).
+    /** One full swing (right and back) = two steps. Walking: a step every 0.8 s (a swing 1.6 s); running: a step every 0.6 s (a swing 1.2 s). */
     private static final float WALK_RATE = 6.2831853f / 1.6f;
     private static final float RUN_RATE = 6.2831853f / 1.2f;
 
@@ -107,13 +109,13 @@ public class FlashlightClient {
     private static final float RAY_START_RADIUS = 0.095f;
     private static final float RAY_LENGTH = 1.4f;
     private static final float RAY_MID = 0.35f;
-    private static final float RAY_ALPHA = 0.06f;
+    private static final float RAY_ALPHA = 0.06f;      // was 0.10: the cone is 40% more transparent (also in the long-range mode)
     private static final double RAY_PHASE = 1.771;
     private static final double SPIN = 0.12;
 
-    private static final Vec3 LENS = toRig(-0.543, 0.158, LENS_Z);
+    private static final Vec3 LENS = toRig(0.0, 0.0, LENS_Z);
     /** the pivot of the running swing: the wrist, behind the grip (coordinates in the flashlight model). */
-    private static final Vec3 WRIST = toRig(-0.252, 0.136, -0.384);
+    private static final Vec3 WRIST = toRig(0.15, 0.05, 0.2);
 
     // ---------- сетка руки ----------
     private static final Vec3 LIGHT_DIR = new Vec3(-0.35, 0.75, 0.55).normalize();
@@ -228,6 +230,10 @@ public class FlashlightClient {
     /** true when the motion of this frame was already updated BEFORE the world was drawn (the shader needs it early). */
     private static boolean preUpdated;
 
+    /**
+     * What the shader gets: how far (sideways, in hand units) the LENS is moved from its rest place by the whole motion of the hand
+     * (the springs: walk, run, look, strafe, fall; the breathing; the swing of the head). The circle of light follows the lens.
+     */
     private static float shaderX() {
         PoseStack t = new PoseStack();
         applyMotion(t, 0f);
@@ -236,6 +242,11 @@ public class FlashlightClient {
         return v.x() - (float) LENS.x;
     }
 
+    /**
+     * Called by FlashlightFocus once per frame BEFORE the world is drawn: moves the hand one step and returns its exact
+     * sideways offset (the same number the hand is drawn with). The shader pack gets it through the marker in the off hand,
+     * so the circle of light moves in step with the hand, frame by frame, without guessing.
+     */
     public static float frameUpdate(LocalPlayer p, boolean on, float pt) {
         updateSway(p, pt, on);
         preUpdated = true;
@@ -260,20 +271,24 @@ public class FlashlightClient {
         float target = on ? 1f : 0f;
         appear += Mth.clamp(target - appear, -dt * SLIDE_SPEED, dt * SLIDE_SPEED);
 
+        // Ходьба / бег: амплитуда и скорость плавно нарастают и затухают
         double speed = p.getDeltaMovement().horizontalDistance();
         boolean moving = p.isOnGround() && speed > 0.04;
         boolean running = moving && p.isSprinting();
         float k = 1f - (float) Math.exp(-dt * 7f);
         moveAmt += ((moving ? 1f : 0f) - moveAmt) * k;
         runAmt += ((running ? 1f : 0f) - runAmt) * k;
+        // fixed pace (the camera always gives Slowness II walking / Slowness I running): 1.5 s and 0.5 s per swing
         if (moving) phase += dt * Mth.lerp(runAmt, WALK_RATE, RUN_RATE);
         if (phase > 6.2831853f) phase -= 6.2831853f;
         gaitNs = now;
 
+        // the springs of the hand (see HandMotion): the speeds in blocks per second, along the view and sideways
         net.minecraft.world.phys.Vec3 dm = p.getDeltaMovement();
         double rad = Math.toRadians(yaw);
         float fwd = (float) (dm.x * -Math.sin(rad) + dm.z * Math.cos(rad)) * 20f;
         float right = (float) (dm.x * -Math.cos(rad) + dm.z * -Math.sin(rad)) * 20f;
+        // up: in the air the real fall / jump speed; on the ground only the climbing (the constant pull of the gravity is not a fall)
         float up = p.isOnGround() ? (float) (p.getY() - p.yo) * 20f : (float) dm.y * 20f;
         boolean sprint = p.isSprinting() && (speed > 0.04 || !p.isOnGround());
         HandMotion.update(dt, fwd, right, up, p.isOnGround(), sprint, dy, -dp);
@@ -283,11 +298,21 @@ public class FlashlightClient {
     private static long gaitNs, lastHeldNs;
     private static float heldTime;
 
+    /**
+     * Read by the camera mod (by reflection) so the view and the hand swing in step:
+     * {phase, how much the player walks 0..1, how much he runs 0..1, 1 if this is live}.
+     */
     public static float[] gaitState() {
         boolean live = (System.nanoTime() - gaitNs) < 250_000_000L;
         return new float[]{phase, moveAmt, runAmt, live ? 1f : 0f};
     }
 
+    /**
+     * The motion of the hand as one transform (used for drawing AND for the circle of light, so they always agree):
+     * the breathing at rest, then the springs of HandMotion (walk / run bob, the lag when the head turns, the lean when
+     * strafing, the fall and the landing, the lower and closer pose of the run), the swing of the head of the flashlight when
+     * running. The springs turn the hand about the WRIST.
+     */
     private static void applyMotion(PoseStack ps, float equip) {
         float idle = 1f - moveAmt * 0.6f;
         float bx = ((float) Math.sin(time * 0.9f) * IDLE_X + (float) Math.sin(time * 0.37f + 1.3f) * IDLE_X * 0.5f) * idle;
@@ -295,16 +320,21 @@ public class FlashlightClient {
         float bRoll = (float) Math.sin(time * 0.8f) * 1.3f * idle;
         float bPitch = (float) Math.sin(time * 1.25f + 0.8f) * 1.0f * idle;
 
+        // the old arc of the hand, as it was (only the movement: no roll, no tilt, the springs below are not touched):
+        // x = sin(phase), y = cos(2 * phase) = the middle is the highest point; smaller when walking
         float wx = (float) Math.sin(phase) * Mth.lerp(runAmt, WALK_AMP_X, RUN_AMP_X) * moveAmt;
         float wy = (float) Math.cos(2 * phase) * Mth.lerp(runAmt, WALK_AMP_Y, RUN_AMP_Y) * moveAmt;
 
+        // the position spring: x right, y up, z FORWARD in the original = -z here
         ps.translate(bx + hp[0] + wx, by + hp[1] + wy - equip * 0.6f, -hp[2]);
         ps.mulPose(Vector3f.ZP.rotationDegrees(bRoll));
         ps.mulPose(Vector3f.XP.rotationDegrees(kick * 4f + bPitch));
+        // the rotation spring about the wrist. Original's signs: Y + = turns to the right, X + = the top goes left, Z + = the front goes up
         ps.translate(WRIST.x, WRIST.y, WRIST.z);
         ps.mulPose(Vector3f.YP.rotationDegrees(-hp[4] * HEAD_TURN_SCALE));
         ps.mulPose(Vector3f.ZP.rotationDegrees(hp[3] * HEAD_TURN_SCALE));
         ps.mulPose(Vector3f.XP.rotationDegrees(hp[5] * HEAD_TURN_SCALE));
+        // WALKING and RUNNING: the head of the flashlight swings from side to side (smaller when walking); the cone of light follows it
         if (moveAmt > 0.001f) {
             float sw = (float) Math.sin(phase) * moveAmt;
             ps.mulPose(Vector3f.YP.rotationDegrees(-sw * Mth.lerp(runAmt, WALK_HEAD_YAW, RUN_HEAD_YAW) * HEAD_TURN_SCALE));
@@ -313,6 +343,7 @@ public class FlashlightClient {
         ps.translate(-WRIST.x, -WRIST.y, -WRIST.z);
     }
 
+    /** Убирает ванильное покачивание руки (оно «перевёрнутой дугой»), чтобы остался только наш ход. */
     private static void cancelVanillaBob(PoseStack ps, Player pl, float pt) {
         float f = pl.walkDist - pl.walkDistO;
         float f1 = -(pl.walkDist + f * pt);
@@ -328,16 +359,6 @@ public class FlashlightClient {
     }
 
     @SubscribeEvent
-    public static void onKeyInput(InputEvent.Key event) {
-        if (event.getKey() == GLFW.GLFW_KEY_F8 && event.getAction() == GLFW.GLFW_PRESS) {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.screen == null && mc.player != null) {
-                mc.setScreen(new FlashlightTunerScreen());
-            }
-        }
-    }
-
-    @SubscribeEvent
     public static void onRenderHand(RenderHandEvent e) {
         ItemStack stack = e.getItemStack();
         if (!(stack.getItem() instanceof FlashlightItem)) return;
@@ -350,7 +371,7 @@ public class FlashlightClient {
                 && pl.getMainHandItem().getItem() instanceof FlashlightItem) return;
 
         boolean on = FlashlightItem.isOn(stack);
-        if (preUpdated) preUpdated = false;
+        if (preUpdated) preUpdated = false;        // already moved this frame (before the world was drawn)
         else updateSway(pl, e.getPartialTick(), on);
         long nowH = System.nanoTime();
         if (nowH - lastHeldNs > 200_000_000L) heldTime = 0f;
@@ -362,9 +383,11 @@ public class FlashlightClient {
         PoseStack ps = e.getPoseStack();
         MultiBufferSource buf = e.getMultiBufferSource();
         int light = e.getPackedLight();
+        // the hand and the flashlight are lit by the place where the player stands (sun, shade, a dark room): no forced minimum
         float brightness = Math.max(LightTexture.block(light), LightTexture.sky(light)) / 15f;
         float lightFactor = Mth.clamp(0.55f + 0.45f * brightness, 0.55f, 1f);
 
+        // only the real equip animation counts: pressing the left mouse button (the "hit") must not move the hand
         float equip = heldTime < 0.6f ? e.getEquipProgress() : 0f;
         float ease = appear * appear * (3f - 2f * appear);
         float slide = 1f - ease;
@@ -373,6 +396,7 @@ public class FlashlightClient {
         if (mc.options.bobView().get()) {
             cancelVanillaBob(ps, pl, e.getPartialTick());
         }
+        // the whole motion of the hand (springs, breathing, swing of the head); the hand keeps it in the long-range mode too
         applyMotion(ps, equip);
         ps.translate(slide * SLIDE_X, slide * SLIDE_Y, slide * SLIDE_Z);
 
@@ -380,6 +404,7 @@ public class FlashlightClient {
             drawRays(ps.last().pose(), ease);
         }
 
+        // Фонарик и рука — в одной системе координат, поэтому двигаются синхронно
         ps.pushPose();
         applyFlashTransform(ps);
         mc.getItemRenderer().renderStatic(stack, ItemTransforms.TransformType.NONE, light,
@@ -387,6 +412,7 @@ public class FlashlightClient {
         if (buf instanceof MultiBufferSource.BufferSource bs) {
             bs.endBatch();
         }
+        // the hand: from the model (everything, arm and fingers, in the coordinates of the flashlight model), or the old boxes
         BakedModel handModel = HAND_FROM_MODEL ? handModel(mc) : null;
         captureMask(mc, stack, handModel, ps);
         if (handModel != null) {
@@ -405,9 +431,14 @@ public class FlashlightClient {
         ps.popPose();
     }
 
+    /** the baked hand model, or null when the file is missing (then the old boxes are used). */
+    // ---------------------------------------------------------------------------------
+    //  Where the hand is on the screen (other mods use it to draw something BEHIND the hand, e.g. the glow of the pages)
+    // ---------------------------------------------------------------------------------
     private static float[] mask = new float[0];
     private static long maskNs;
 
+    /** every quad of the flashlight and of the hand, projected to the screen: x0,y0,x1,y1,x2,y2,x3,y3 in NDC (-1..1), per quad. Null when the hand was not drawn just now. */
     public static float[] handMask() {
         if (System.nanoTime() - maskNs > 150_000_000L || mask.length == 0) return null;
         return mask;
