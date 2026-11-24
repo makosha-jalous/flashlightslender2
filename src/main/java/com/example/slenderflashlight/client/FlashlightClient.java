@@ -64,7 +64,7 @@ public class FlashlightClient {
     private static final float RUN_AMP_Y = 0.040f;
     private static final float LENS_Z = -0.475f;
     /** the lens (the head) and the wrist in the coordinates of the NEW flashlight+hand model (they move with it). */
-    private static final float[] LENS_LOCAL = {-0.5979f, 0.3845f, -0.9760f};
+    private static final float[] LENS_LOCAL = {-0.5900f, 0.3250f, -0.8100f};
 
     /** the pose that is written in the code (the tuner's "Reset" goes back to it): x, y, z, scale, yaw, pitch, roll. */
     private static final float[] DEFAULT_POSE = {FLASH_X, FLASH_Y, FLASH_Z, FLASH_SCALE, FLASH_YAW, FLASH_PITCH, FLASH_ROLL};
@@ -252,7 +252,10 @@ public class FlashlightClient {
         applyMotion(t, 0f);
         com.mojang.math.Vector4f v = new com.mojang.math.Vector4f((float) LENS.x, (float) LENS.y, (float) LENS.z, 1f);
         v.transform(t.last().pose());
-        return v.x() - (float) LENS.x;
+        // how far the lens moved SIDEWAYS ON THE SCREEN, written in the old units (the pack was tuned for a lens 1.509 deep),
+        // so it does not matter where the model stands
+        float restD = Math.max(0.05f, (float) -LENS.z), curD = Math.max(0.05f, -v.z());
+        return (v.x() / curD - (float) LENS.x / restD) * 1.509f;
     }
 
     /**
@@ -535,49 +538,48 @@ public class FlashlightClient {
     }
 
     // =====================================================================
-    //  The rays of the light (like in the original: soft fibrous streaks that fan out of the head and turn slowly)
+    //  The rays of the light: the ORIGINAL textures (one soft picture each, not split), white and transparent.
+    //  The picture sits behind the head of the flashlight, grows out from under it towards the middle of the screen and turns slowly.
     // =====================================================================
-    private static final ResourceLocation RAY_TEX = new ResourceLocation(SlenderFlashlightMod.ID, "textures/effect/flashlight_ray.png");
-    /** how long a ray is, in "distances from the camera to the head": normal / long-range light. */
-    private static final float RAY_LEN_NORMAL = 1.9f, RAY_LEN_FOCUS = 3.2f;
-    /** how fast a ray widens (degrees): normal / long-range light. */
-    private static final float RAY_WIDEN_NORMAL = 4.0f, RAY_WIDEN_FOCUS = 1.8f;
-    private static final int RAY_STEPS = 10;
-    /** how bright the streaks are (0..1): raise it if the rays are too faint. */
-    private static final float RAY_TEX_ALPHA = 0.26f;
+    private static final ResourceLocation RAY_NORMAL = new ResourceLocation(SlenderFlashlightMod.ID, "textures/effect/flashlight_ray_normal.png");
+    private static final ResourceLocation RAY_FOCUS = new ResourceLocation(SlenderFlashlightMod.ID, "textures/effect/flashlight_ray_focus.png");
+    /** the picture: size in pixels, where the rays start (root) and where they end (tip), as fractions of the picture. */
+    private static final float[] N_PIC = {440, 572, 0.6603f, 0.7487f, 0.2120f, 0.3161f};
+    private static final float[] F_PIC = {430, 572, 0.6929f, 0.7518f, 0.2926f, 0.3229f};
+    /** how long the rays are: in "distances from the camera to the head" (so it does not depend on the size of the model). */
+    private static final float RAY_LEN_NORMAL = 0.72f, RAY_LEN_FOCUS = 1.0f;
+    /** how bright the rays are (0..1): raise it if they are too faint. */
+    private static final float RAY_TEX_ALPHA = 0.34f;
+    /** the slow turn of the picture about the head: how far (degrees) and how long one swing takes (seconds). */
+    private static final float RAY_TURN_DEG = 16f, RAY_TURN_SECONDS = 18f;
 
-    private static void drawRay(BufferBuilder bb, Matrix4f m, Vec3 dir, float alpha, float foc) {
-        // the ribbon lies in the plane facing the camera: its width is across the ray, seen on the screen
-        double sl = Math.sqrt(dir.x * dir.x + dir.y * dir.y);
-        if (sl < 1e-4) return;
-        Vec3 side = new Vec3(dir.y / sl, -dir.x / sl, 0.0);
+    private static void drawPic(BufferBuilder bb, Matrix4f m, float[] pic, float lengthTan, float alpha, float turnDeg) {
+        float w = pic[0], h = pic[1];
+        float rootU = pic[2], rootV = pic[3];
+        float dxp = (pic[4] - pic[2]) * w, dyp = (pic[5] - pic[3]) * h;
+        float lenPx = (float) Math.sqrt(dxp * dxp + dyp * dyp);
         double depth = Math.max(0.5, -LENS.z);
-        double len = depth * Mth.lerp(foc, RAY_LEN_NORMAL, RAY_LEN_FOCUS);
-        double tan = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_WIDEN_NORMAL, RAY_WIDEN_FOCUS)));
-        double w0 = 0.05 * FLASH_SCALE;
-        for (int s = 0; s < RAY_STEPS; s++) {
-            double t0 = (double) s / RAY_STEPS, t1 = (double) (s + 1) / RAY_STEPS;
-            Vec3 c0 = LENS.add(dir.scale(len * t0)), c1 = LENS.add(dir.scale(len * t1));
-            double h0 = w0 + len * t0 * tan, h1 = w0 + len * t1 * tan;
-            float a0 = alpha * rayFade((float) t0), a1 = alpha * rayFade((float) t1);
-            Vec3 p0 = c0.add(side.scale(-h0)), p1 = c0.add(side.scale(h0));
-            Vec3 p2 = c1.add(side.scale(h1)), p3 = c1.add(side.scale(-h1));
-            bb.vertex(m, (float) p0.x, (float) p0.y, (float) p0.z).color(1f, 1f, 1f, a0).uv(0f, (float) t0).endVertex();
-            bb.vertex(m, (float) p1.x, (float) p1.y, (float) p1.z).color(1f, 1f, 1f, a0).uv(1f, (float) t0).endVertex();
-            bb.vertex(m, (float) p2.x, (float) p2.y, (float) p2.z).color(1f, 1f, 1f, a1).uv(1f, (float) t1).endVertex();
-            bb.vertex(m, (float) p3.x, (float) p3.y, (float) p3.z).color(1f, 1f, 1f, a1).uv(0f, (float) t1).endVertex();
+        // units per picture pixel: the rays (root -> tip) are lengthTan * depth long
+        float k = (float) (lengthTan * depth) / lenPx;
+        // the direction of the picture (root -> tip), and where the rays have to go: from the head to the middle of the screen
+        double nat = Math.atan2(-dyp, dxp);
+        double aim = Math.atan2(0.0 - LENS.y / depth, 0.0 - LENS.x / depth);
+        double th = aim - nat + Math.toRadians(turnDeg);
+        float cs = (float) Math.cos(th), sn = (float) Math.sin(th);
+        float[][] uv = {{0f, 0f}, {1f, 0f}, {1f, 1f}, {0f, 1f}};
+        for (float[] c : uv) {
+            float lx = (c[0] - rootU) * w * k, ly = -(c[1] - rootV) * h * k;
+            float rx = lx * cs - ly * sn, ry = lx * sn + ly * cs;
+            bb.vertex(m, (float) LENS.x + rx, (float) LENS.y + ry, (float) LENS.z - 0.01f)
+                    .color(1f, 1f, 1f, alpha).uv(c[0], c[1]).endVertex();
         }
     }
 
-    /** brightness along a ray: fades in at the head, fades out far away. */
-    private static float rayFade(float t) {
-        float in = Mth.clamp(t / 0.12f, 0f, 1f);
-        in = in * in * (3f - 2f * in);
-        return in * (float) Math.pow(1.0 - t, 1.4);
-    }
-
     private static void drawRays(Matrix4f m, float visible) {
-        BufferBuilder bb = Tesselator.getInstance().getBuilder();
+        float foc = FlashlightFocus.amount();
+        double t = (System.nanoTime() - START_NS) / 1e9;
+        float turn = (float) Math.sin(t * 2 * Math.PI / RAY_TURN_SECONDS) * RAY_TURN_DEG;
+        float breathe = 0.92f + 0.08f * (float) Math.sin(t * 0.8);
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
         RenderSystem.enableDepthTest();
@@ -585,21 +587,18 @@ public class FlashlightClient {
         RenderSystem.disableCull();
         RenderSystem.depthMask(false);
         RenderSystem.setShader(GameRenderer::getPositionColorTexShader);
-        RenderSystem.setShaderTexture(0, RAY_TEX);
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
-        bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
-
-        float foc = FlashlightFocus.amount();
-        double t = (System.nanoTime() - START_NS) / 1e9;
-        double spin = RAY_PHASE + t * SPIN;
-        double off = Math.tan(Math.toRadians(Mth.lerp(foc, RAY_OFFSET, 7.0f)));
-        for (int i = 0; i < RAYS; i++) {
-            double phi = 2 * Math.PI * i / RAYS + spin;
-            Vec3 dir = new Vec3(off * Math.cos(phi), off * Math.sin(phi), -1.0).normalize();
-            drawRay(bb, m, dir, RAY_TEX_ALPHA * visible * pulse(i, t) * (1f + 0.6f * foc), foc);
+        for (int pass = 0; pass < 2; pass++) {
+            boolean focus = pass == 1;
+            float wgt = focus ? foc : 1f - foc;
+            if (wgt <= 0.003f) continue;
+            RenderSystem.setShaderTexture(0, focus ? RAY_FOCUS : RAY_NORMAL);
+            BufferBuilder bb = Tesselator.getInstance().getBuilder();
+            bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
+            drawPic(bb, m, focus ? F_PIC : N_PIC, focus ? RAY_LEN_FOCUS : RAY_LEN_NORMAL,
+                    RAY_TEX_ALPHA * visible * breathe * wgt, turn);
+            BufferUploader.drawWithShader(bb.end());
         }
-        BufferUploader.drawWithShader(bb.end());
-
         RenderSystem.enableCull();
         RenderSystem.depthMask(true);
         RenderSystem.depthFunc(515);
