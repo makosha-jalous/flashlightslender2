@@ -549,9 +549,12 @@ public class FlashlightClient {
     /** the long-range light: the same picture, the same place and angle, but this much narrower (1 = as wide as normal). */
     private static final float RAY_FOCUS_WIDTH = 0.38f;
     /** how bright the rays are (0..1): raise it if they are too faint. */
-    private static final float RAY_TEX_ALPHA = 0.17f;
-    /** the slow turn of the picture about the head: how far (degrees) and how long one swing takes (seconds). */
-    private static final float RAY_TURN_DEG = 16f, RAY_TURN_SECONDS = 18f;
+    private static final float RAY_TEX_ALPHA = 0.19f;
+    /**
+     * the colour of the rays (red, green, blue, 0..1). The game / shader pack warms everything a little, so the rays are made
+     * a bit "colder" here to look like the cold white of the circle of light. More blue = colder; (1, 1, 1) = no correction.
+     */
+    private static final float RAY_R = 0.55f, RAY_G = 0.68f, RAY_B = 1.0f;
 
     private static void drawPic(BufferBuilder bb, Matrix4f m, float[] pic, float lengthTan, float alpha, float turnDeg, float narrow) {
         float w = pic[0], h = pic[1];
@@ -577,15 +580,12 @@ public class FlashlightClient {
             ly = along * axy + py * narrow;
             float rx = lx * cs - ly * sn, ry = lx * sn + ly * cs;
             bb.vertex(m, (float) LENS.x + rx, (float) LENS.y + ry, (float) LENS.z - 0.01f)
-                    .color(1f, 1f, 1f, alpha).uv(c[0], c[1]).endVertex();
+                    .color(RAY_R, RAY_G, RAY_B, alpha).uv(c[0], c[1]).endVertex();
         }
     }
 
     private static void drawRays(Matrix4f m, float visible) {
         float foc = FlashlightFocus.amount();
-        double t = (System.nanoTime() - START_NS) / 1e9;
-        float turn = (float) Math.sin(t * 2 * Math.PI / RAY_TURN_SECONDS) * RAY_TURN_DEG;
-        float breathe = 0.92f + 0.08f * (float) Math.sin(t * 0.8);
         RenderSystem.enableBlend();
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
         RenderSystem.enableDepthTest();
@@ -602,7 +602,7 @@ public class FlashlightClient {
             BufferBuilder bb = Tesselator.getInstance().getBuilder();
             bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
             drawPic(bb, m, N_PIC, focus ? RAY_LEN_FOCUS : RAY_LEN_NORMAL,
-                    RAY_TEX_ALPHA * visible * breathe * wgt, turn, focus ? RAY_FOCUS_WIDTH : 1f);
+                    RAY_TEX_ALPHA * visible * wgt, 0f, focus ? RAY_FOCUS_WIDTH : 1f);
             BufferUploader.drawWithShader(bb.end());
         }
         RenderSystem.enableCull();
