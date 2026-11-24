@@ -542,18 +542,18 @@ public class FlashlightClient {
     //  The picture sits behind the head of the flashlight, grows out from under it towards the middle of the screen and turns slowly.
     // =====================================================================
     private static final ResourceLocation RAY_NORMAL = new ResourceLocation(SlenderFlashlightMod.ID, "textures/effect/flashlight_ray_normal.png");
-    private static final ResourceLocation RAY_FOCUS = new ResourceLocation(SlenderFlashlightMod.ID, "textures/effect/flashlight_ray_focus.png");
     /** the picture: size in pixels, where the rays start (root) and where they end (tip), as fractions of the picture. */
     private static final float[] N_PIC = {440, 572, 0.6603f, 0.7487f, 0.2120f, 0.3161f};
-    private static final float[] F_PIC = {430, 572, 0.6929f, 0.7518f, 0.2926f, 0.3229f};
     /** how long the rays are: in "distances from the camera to the head" (so it does not depend on the size of the model). */
-    private static final float RAY_LEN_NORMAL = 0.72f, RAY_LEN_FOCUS = 1.0f;
+    private static final float RAY_LEN_NORMAL = 0.72f, RAY_LEN_FOCUS = 0.72f;
+    /** the long-range light: the same picture, the same place and angle, but this much narrower (1 = as wide as normal). */
+    private static final float RAY_FOCUS_WIDTH = 0.38f;
     /** how bright the rays are (0..1): raise it if they are too faint. */
-    private static final float RAY_TEX_ALPHA = 0.34f;
+    private static final float RAY_TEX_ALPHA = 0.17f;
     /** the slow turn of the picture about the head: how far (degrees) and how long one swing takes (seconds). */
     private static final float RAY_TURN_DEG = 16f, RAY_TURN_SECONDS = 18f;
 
-    private static void drawPic(BufferBuilder bb, Matrix4f m, float[] pic, float lengthTan, float alpha, float turnDeg) {
+    private static void drawPic(BufferBuilder bb, Matrix4f m, float[] pic, float lengthTan, float alpha, float turnDeg, float narrow) {
         float w = pic[0], h = pic[1];
         float rootU = pic[2], rootV = pic[3];
         float dxp = (pic[4] - pic[2]) * w, dyp = (pic[5] - pic[3]) * h;
@@ -567,8 +567,14 @@ public class FlashlightClient {
         double th = aim - nat + Math.toRadians(turnDeg);
         float cs = (float) Math.cos(th), sn = (float) Math.sin(th);
         float[][] uv = {{0f, 0f}, {1f, 0f}, {1f, 1f}, {0f, 1f}};
+        // the axis of the rays inside the picture (root -> tip), to make the picture narrower ACROSS it
+        float axx = dxp / lenPx, axy = -dyp / lenPx;
         for (float[] c : uv) {
             float lx = (c[0] - rootU) * w * k, ly = -(c[1] - rootV) * h * k;
+            float along = lx * axx + ly * axy;
+            float px = lx - along * axx, py = ly - along * axy;
+            lx = along * axx + px * narrow;
+            ly = along * axy + py * narrow;
             float rx = lx * cs - ly * sn, ry = lx * sn + ly * cs;
             bb.vertex(m, (float) LENS.x + rx, (float) LENS.y + ry, (float) LENS.z - 0.01f)
                     .color(1f, 1f, 1f, alpha).uv(c[0], c[1]).endVertex();
@@ -592,11 +598,11 @@ public class FlashlightClient {
             boolean focus = pass == 1;
             float wgt = focus ? foc : 1f - foc;
             if (wgt <= 0.003f) continue;
-            RenderSystem.setShaderTexture(0, focus ? RAY_FOCUS : RAY_NORMAL);
+            RenderSystem.setShaderTexture(0, RAY_NORMAL);
             BufferBuilder bb = Tesselator.getInstance().getBuilder();
             bb.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR_TEX);
-            drawPic(bb, m, focus ? F_PIC : N_PIC, focus ? RAY_LEN_FOCUS : RAY_LEN_NORMAL,
-                    RAY_TEX_ALPHA * visible * breathe * wgt, turn);
+            drawPic(bb, m, N_PIC, focus ? RAY_LEN_FOCUS : RAY_LEN_NORMAL,
+                    RAY_TEX_ALPHA * visible * breathe * wgt, turn, focus ? RAY_FOCUS_WIDTH : 1f);
             BufferUploader.drawWithShader(bb.end());
         }
         RenderSystem.enableCull();
